@@ -1,0 +1,6 @@
+evdev; sys_platform=="linux"
+numpy
+psutil; sys_platform=="linux"
+pygame
+random_user_agent
+requests

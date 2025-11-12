@@ -1,0 +1,7 @@
+name=Select_Graphic		mode=Main      submode=ask_graphic
+name=Show_Cat					mode=Graphic	 graphic=cat
+name=Show_Dog					mode=Graphic	 graphic=dog
+name=Select_Sound			mode=Main      submode=ask_sound
+name=Play_Meow				mode=Sound		 sound=meow
+name=Play_Woof				mode=Sound		 sound=woof
+name=Finish						mode=Main      submode=finish

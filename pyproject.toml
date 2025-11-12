@@ -1,0 +1,32 @@
+[project]
+name = "jubilee"
+version = "0.20"
+authors = [
+	{name = "David Stein", email = "jubilee@steinemail.com"},
+]
+description = "Lightweight application framework built on pygame"
+keywords = ["pygame"]
+classifiers = ["Development Status :: 3 - Alpha", "Intended Audience :: Developers"]
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+dynamic = ["dependencies"]
+
+[projects.urls]
+Homepage = "https://github.com/neuron-whisperer/jubilee"
+Documentation = "https://github.com/neuron-whisperer/jubilee/Docs/Jubilee_Reference.md"
+Repository = "https://github.com/neuron-whisperer/jubilee.git"
+Issues = "https://github.com/neuron-whisperer/jubilee/issues"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tools.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tools.setuptools.packages.find]
+where = ["."]
