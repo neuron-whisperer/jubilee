@@ -7,8 +7,8 @@ from .misc import Log
 class ShutDownMode(Mode):
 	""" Shutdown mode class. """
 
-	def __init__(self, app_queue, worker_queue):
-		super().__init__(app_queue, worker_queue)
+	def __init__(self):
+		super().__init__()
 		self.return_mode = None
 
 	def init(self):

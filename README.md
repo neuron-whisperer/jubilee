@@ -47,39 +47,39 @@ Jubilee is a lightweight app engine built on pygame. The purpose of Jubilee is t
 Here is a simple Jubilee application with one mode and one background worker:
 
 ```
-    import jubilee
+import jubilee
 
-    class HelloApp(jubilee.App):
+class HelloMode(jubilee.Mode):
 
-        def init(self):
-            self.name = 'Hello App'
-            self.add_mode(HelloMode)
-            self.add_worker(HelloWorker)
+    def init(self):
+        self.name = 'Hello Mode'
 
-    class HelloMode(jubilee.Mode):
+    def process(self):
+        pass        # mode-specific UI processing can occur here
 
-        def init(self):
-            self.name = 'Hello Mode'
+    def draw(self):
+        self.app.center_text('Hello, World!')
 
-        def process(self):
-            pass        # mode-specific UI processing can occur here
-
-        def draw(self):
-            self.app.center_text('Hello, World!')
-
-    class HelloWorker(jubilee.Worker):
+class HelloWorker(jubilee.Worker):
     
-        def init(self):
-            self.name = 'Hello Worker'
-        
-        def process(self):
-            pass        # high-frequency background processing can occur here
+    def init(self):
+        self.name = 'Hello Worker'
+    
+    def process(self):
+        pass        # high-frequency background processing can occur here
 
-        def process_periodic(self):
-            pass        # low-frequency background processing can occur here
+    def process_periodic(self):
+        pass        # low-frequency background processing can occur here
 
-        if __name__ == '__main__':
-            HelloApp().run()
+class HelloApp(jubilee.App):
+
+    def init(self):
+        self.name = 'Hello App'
+        self.add_mode(HelloMode)
+        self.add_worker(HelloWorker)
+
+if __name__ == '__main__':
+    HelloApp().run()
 ```
 This application contains one defined mode, which is automatically selected as the initial mode of the application. The App executes a loop that calls the `process` and `draw` methods of the mode (default 10 Hz each). The mode `draw` method displays "Hello, World!" in the center of the screen. The application also creates a background worker that runs as a separate process. The worker calls `process` frequently (default 20 Hz) and `process_periodic` occasionally (default 1 Hz).
 
