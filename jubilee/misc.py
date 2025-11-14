@@ -328,7 +328,7 @@ class Misc:
 		start = time.time()
 		status_code, response = cls.http_request('https://google.com')
 		success = (status_code == 200)
-		response = response if status_code == 200 else time.time() - start
+		response = time.time() if status_code == 200 else response
 		return (success, response)
 
 	@staticmethod

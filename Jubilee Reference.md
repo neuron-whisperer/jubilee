@@ -320,6 +320,13 @@ submode_timer: int     					       # draw cycles since mode.enter()
 set_submode(name, mode_parameters: dict=None)  # also exits previous submode
 ```
 
+A few specific details about submode methods:
+
+* `enter_{submode}` is called during `set_submode`, not during or in place of `mode.enter`. Of course, `mode.enter` will usually call `mode.set_submode` to select the initial submode, which results in `enter_{submode}` being called. `enter_{submode}` is also called while changing to the submode at a later time during the presentation of the mode.
+* `click_{submode}`, `process_{submode}`, and `draw_{submode}` are called **instead of** the mode method. Since the submode method can call the corresponding mode method, this logic provides greater control over if and when that happens - e.g., the submode can draw before, after, and/or instead of the `mode.draw` method.
+* When App switches away from a mode, `exit_{submode}` is called **as well as** the `mode.exit` method. This logic fulfills the expectation that the selection of a mode will always begin with `mode.enter` and always end with `mode.exit`, while also providing a current submode an opportunity to perform cleanup when the mode exits. `exit_{submode}` is also called when switching from the submode to a different submode during the presentation of the mode.
+* Any methods can be omitted for a submode. However, a submode only exists if at least one submode method is implemented. Setting a submode with no submode methods produces a Log.error in case of typographical errors.
+
 ## Worker Class Reference
 
 ### Example Worker
@@ -367,7 +374,7 @@ update_config(key, value)					 # writes updated config; sends to app
 
 ## config.txt
 
-This file contains high-level Jubilee application configuration features and is loaded at startup. If it does not exist, default values provided in Worker are used instead.
+This file contains high-level Jubilee application configuration features. App loads this file into App.config at startup; if the file does not exist, default values provided in Worker are used. A first Worker process periodically checks this file for updates and automatically reloads it. 
 
 ```
 "screen_resolution": [320, 240] 			 # screen resolution for drawing
