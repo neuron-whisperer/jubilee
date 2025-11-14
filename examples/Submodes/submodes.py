@@ -1,15 +1,14 @@
 """ Submodes Jubilee app. """
 
 import random, sys
-from jubilee import App
-from jubilee.base_classes import Button, Mode
+from jubilee import App, Mode
 from jubilee.misc import Log, Misc
 
-class Submodes_App(App):
+class SubmodesApp(App):
 	""" Submodes app. """
 
 	def init(self):
-		self.add_mode(Main_Mode)
+		self.add_mode(MainMode)
 
 	def process_message(self, message):
 		""" Process message from worker. """
@@ -20,7 +19,7 @@ class Submodes_App(App):
 		else:
 			super().process_message(message)
 
-class Main_Mode(Mode):
+class MainMode(Mode):
 	""" Main mode. """
 
 	def init(self):
@@ -43,7 +42,7 @@ class Main_Mode(Mode):
 	def draw_generating(self):
 		""" Draw method for generating submode. """
 		
-		self.app.draw_text_center(f'Generating: {len(self.buffer)} / 100', 20)
+		self.app.center_text(f'Generating: {len(self.buffer)} / 100', 20)
 		self.show_buffer()
 
 	def process_showing(self):
@@ -60,7 +59,7 @@ class Main_Mode(Mode):
 	def draw_showing(self):
 		""" Draw method for showing submode. """
 
-		self.app.draw_text_center(f'Complete (click/touch to restart)', 20)
+		self.app.center_text(f'Complete (click/touch to restart)', 20)
 		self.show_buffer()
 
 	def show_buffer(self):
@@ -73,4 +72,4 @@ class Main_Mode(Mode):
 			self.app.fill_rect(left+i*2, 50, 2, 50, color=color)
 	
 if __name__ == '__main__':
-	Submodes_App().run()
+	SubmodesApp().run()

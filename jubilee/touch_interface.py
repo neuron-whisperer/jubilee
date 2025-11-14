@@ -1,10 +1,10 @@
 """ Jubilee touch interface class using evdev. """
 
 import evdev
-from .base_classes import Pointer_Interface
+from .base_classes import PointerInterface
 from .misc import Log
 
-class Touch_Interface(Pointer_Interface):
+class TouchInterface(PointerInterface):
 	""" Touch interface class. """
 
 	def __init__(self, resolution: list=None, scale: list=None, swap_axes: bool=False):
@@ -21,21 +21,21 @@ class Touch_Interface(Pointer_Interface):
 				except:
 					pass
 			if device_number is None:
-				Log.error('Touch_Interface', '__init__', 'Could not find touchscreen input among device events')
+				Log.error('TouchInterface', '__init__', 'Could not find touchscreen input among device events')
 				self.touch = None
 				return
-			Log.info('Touch_Interface', '__init__', f'Found touchscreen on device /dev/input/event{device_number}')
+			Log.info('TouchInterface', '__init__', f'Found touchscreen on device /dev/input/event{device_number}')
 			device = f'/dev/input/event{device_number}'
 			self.touch = evdev.InputDevice(device)
 			self.touch.grab()
-			Log.info('Touch_Interface', '__init__', f'Grabbed {device} - info: {self.touch.info}')
+			Log.info('TouchInterface', '__init__', f'Grabbed {device} - info: {self.touch.info}')
 		except Exception as e:
-			Log.error('Touch_Interface', '__init__', f'Exception during grab: {e}')
+			Log.error('TouchInterface', '__init__', f'Exception during grab: {e}')
 			return
 		self.resolution = resolution
 		self.scale = scale
 		if resolution is None or scale is None:
-			Log.warning('Touch_Interface', '__init__', 'resolution and/or scale not specified')
+			Log.warning('TouchInterface', '__init__', 'resolution and/or scale not specified')
 		self.swap_axes = swap_axes
 
 	def detect_events(self) -> bool:

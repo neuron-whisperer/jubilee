@@ -1,14 +1,14 @@
-""" No_Display_Worker worker. """
+""" HeadlessWorker worker. """
 
 import time
 from jubilee import Worker
 from jubilee.misc import Log
 
-class No_Display_Worker(Worker):
-	""" No_Display_Worker class for No_Display app. """
+class HeadlessWorker(Worker):
+	""" HeadlessWorker class for Headless app. """
 
 	def init(self):
-		""" No_Display_Worker initializer. """
+		""" HeadlessWorker initializer. """
 		
 		self.name = f'Worker {int(time.time()) % 100}'
 		Log.console_level = 'Info'
@@ -18,7 +18,7 @@ class No_Display_Worker(Worker):
 
 		action = message.get('action', None)
 		if action == 'ping':
-			Log.info('No_Display_Worker', 'process_message', f'Returned ping {message["id"]}')
+			Log.info('HeadlessWorker', 'process_message', f'Returned ping {message["id"]}')
 			message['action'] = 'pong'
 			message['worker'] = self.name
 			self.send_message(message)

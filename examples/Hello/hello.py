@@ -1,16 +1,16 @@
 """ Hello Jubilee app. """
 
-from jubilee import App
-from jubilee.base_classes import Button, Mode
-from hello_worker import Hello_Worker
+from jubilee import App, Mode
+from jubilee.controls import Button
+from hello_worker import HelloWorker
 
-class Hello_App(App):
+class HelloApp(App):
 	""" Hello app. """
 
 	def init(self):
-		self.add_worker(Hello_Worker)
-		self.add_mode(Hello_Mode)
-		self.set_mode('Hello Mode')						# note: first mode is selected by default
+		self.add_worker(HelloWorker)
+		self.add_mode(HelloMode)
+		self.set_mode('Hello')						# note: first mode is selected by default
 
 	def process_message(self, message):
 		""" Process message from worker. """
@@ -21,14 +21,14 @@ class Hello_App(App):
 		else:
 			super().process_message(message)
 
-class Hello_Mode(Mode):
+class HelloMode(Mode):
 	""" Hello mode. """
 
 	def init(self):
-		self.name = 'Hello Mode'
+		self.name = 'Hello'
 		self.click_count = 0
 		x = self.app.screen_center - 50; y = self.app.screen_middle - 30
-		self.add_control(Button(self.app, x, y, 100, 60, 'Hello, World!', click=self.clicked_hello))
+		self.add_control(Button('Hello, World!', x, y, 100, 60, click=self.clicked_hello))
 
 	def clicked_hello(self):
 		""" Click handler for Hello button. """
@@ -56,7 +56,7 @@ class Hello_Mode(Mode):
 
 		# draw text in default font to show click count
 		text = f'Click Count: {self.click_count}'
-		self.app.draw_text_center(text, self.app.screen_middle + 50)
+		self.app.center_text(text, self.app.screen_middle + 50)
 
 if __name__ == '__main__':
-	Hello_App().run()
+	HelloApp().run()

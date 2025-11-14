@@ -2,13 +2,13 @@
 
 from jubilee import Worker
 
-class Hello_Worker(Worker):
+class HelloWorker(Worker):
 	""" Worker class for Hello app. """
 
 	def init(self):
-		""" Hello_Worker initializer. """
+		""" HelloWorker initializer. """
 		
-		self.name = 'Hello_Worker'
+		self.name = 'HelloWorker'
 
 	def process(self):
 		""" Regular (high-frequency) worker processing. """

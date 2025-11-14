@@ -1,36 +1,41 @@
 """ Jubilee Shut Down mode class. """
 
-from .base_classes import Button, Mode
+from .mode import Mode
+from .controls import Button, HoldButton
 from .misc import Log
 
-class Shut_Down_Mode(Mode):
+class ShutDownMode(Mode):
 	""" Shutdown mode class. """
 
-	def __init__(self, return_mode: str|Mode=None):
-		super().__init__()
-		self.return_mode = return_mode
+	def __init__(self, app_queue, worker_queue):
+		super().__init__(app_queue, worker_queue)
+		self.return_mode = None
 
 	def init(self):
 		""" Shut Down mode initializer. """
 
 		self.name = 'Shut Down'
 		button_width = 150
-		self.add_control(Button(self.app, self.app.button_margin, self.app.screen_height - 60, button_width, 60, 'Yes', click=self.app.shut_down))
-		self.add_control(Button(self.app, self.app.screen_width - self.app.button_margin - button_width, self.app.screen_height - 60, button_width, 60, 'Cancel', click=self.cancel_shutdown))
+		hold_steps = int(self.app.config.get('app_process_fps', 10) * 0.75)
+		self.add_control(HoldButton('Yes', self.app.button_margin, self.app.screen_height - 60, button_width, 60, click=self.app.shut_down, hold_color='red', hold_steps=hold_steps))
+		self.add_control(Button('Cancel', self.app.screen_width - self.app.button_margin - button_width, self.app.screen_height - 60, button_width, 60, click=self.cancel_shutdown))
 
-		# add this to create a button to switch back from Log to another screen
-		# self.add_control(Button(self.app, self.app.screen_width - 77 - self.app.button_margin, self.app.screen_height - 60, 77, 60, 'Back', target_mode = 'Target Mode'))
+	def enter(self, mode_parameters: dict=None):
+		""" Shut Down mode enter method. """
+
+		self.return_mode = (mode_parameters or {}).get('previous_mode', None)
 
 	def draw(self):
 		""" Shut Down mode draw method. """
 
 		self.app.fill_screen('black')
-		self.app.draw_text('Confirm Shutdown', int(self.app.screen_width / 2), int(self.app.screen_height) / 2, alignment='center')
+		self.app.center_text('Confirm Shutdown', self.app.screen_middle - 30)
+		self.app.center_text('Hold to confirm')
 
 	def cancel_shutdown(self):
 		""" Cancel shutdown and return to previous mode. """
 
 		if self.return_mode is None:
-			Log.error('Shut_Down_Mode', 'cancel_suhtdown', 'self.return_mode is None')
+			Log.error('ShutDownMode', 'cancel_shutdown', 'return_mode is None')
 		else:
 			self.app.set_mode(self.return_mode)

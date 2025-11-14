@@ -1,12 +1,16 @@
 """ Jubilee Log mode class. """
 
 import math, platform, time
-import psutil
+try:
+	import psutil
+except:
+	psutil = None
 from pygame.font import Font
-from .base_classes import Button, Mode
+from .mode import Mode
+from .controls import Button
 from .misc import Log
 
-class Log_Mode(Mode):
+class LogMode(Mode):
 	""" Log mode class. """
 
 	def __init__(self, max_log_size: int=100, button_font: str|Font=None, return_mode: str|Mode=None, return_mode_parameters: dict=None):
@@ -14,7 +18,7 @@ class Log_Mode(Mode):
 		self.log_date = None
 		self.log_text = []
 		self.log_line_height = 13
-		self.log_lines_per_page = int((self.app.screen_height - 180) / self.log_line_height)
+		self.log_lines_per_page = 10
 		self.log_page = 0
 		self.max_log_size = max_log_size
 		self.button_font = button_font
@@ -30,21 +34,23 @@ class Log_Mode(Mode):
 
 		self.name = 'Log'
 
+		# add page size from app
+		self.log_lines_per_page = int((self.app.screen_height - 180) / self.log_line_height)
+
 		# create controls for log mode
 		button_width = 77
-		self.add_control(Button(self.app, self.app.button_margin, self.app.screen_height - 60,
-			button_width, 60, 'Font', font=self.button_font, click=self.change_font))
-		self.add_control(Button(self.app, button_width + self.app.button_margin * 2,
-			self.app.screen_height - 60, button_width, 60, 'Up', font=self.button_font,
+		self.add_control(Button('Font', self.app.button_margin, self.app.screen_height - 60,
+			button_width, 60, font=self.button_font, click=self.change_font))
+		self.add_control(Button('Up', button_width + self.app.button_margin * 2,
+			self.app.screen_height - 60, button_width, 60, font=self.button_font,
 			click=self.log_page_up))
-		self.add_control(Button(self.app, button_width * 2 + self.app.button_margin * 3,
-			self.app.screen_height - 60, button_width, 60, 'Down', font=self.button_font,
+		self.add_control(Button('Down', button_width * 2 + self.app.button_margin * 3,
+			self.app.screen_height - 60, button_width, 60, font=self.button_font,
 			click=self.log_page_down))
 
 		# create Back button
-		self.back_button = Button(self.app, self.app.screen_width-77-self.app.button_margin,
-			self.app.screen_height-60, 77, 60, 'Back', font=self.button_font,
-			target_mode=self.return_mode, target_mode_parameters=self.return_mode_parameters,
+		self.back_button = Button('Back', self.app.screen_width-77-self.app.button_margin,
+			self.app.screen_height-60, 77, 60, font=self.button_font,
 			click=self.back_click)
 		self.add_control(self.back_button)
 
@@ -58,14 +64,15 @@ class Log_Mode(Mode):
 
 		super().enter(mode_parameters)
 		self.return_mode = mode_parameters.get('previous_mode', self.return_mode)
-		self.return_mode_parameters = mode_parameters.get('previous_mode_parameters', self.return_mode_parameters)
+		self.log_page = 0
+		self.check_log()
 
 	def back_click(self):
 		""" Handles Back button click. """
 
 		mode = self.back_button.target_mode or self.return_mode
 		if mode is None:
-			Log.error('Log_Mode', 'back_click', 'No mode to switch back to')
+			Log.error('LogMode', 'back_click', 'No mode to switch back to')
 		else:
 			self.app.set_mode(mode, mode_parameters=self.return_mode_parameters)
 
@@ -92,23 +99,24 @@ class Log_Mode(Mode):
 	def record_cpu_temperatures(self):
 		""" Record CPU temperatures. """
 
+		if psutil is None:
+			return
 		max_graph_points = self.app.screen_width - 180
-		self.cpu_load.append(int(psutil.cpu_percent()))
-		if len(self.cpu_load) > max_graph_points:
+		try:
+			self.cpu_load.append(int(psutil.cpu_percent()))
 			self.cpu_load = self.cpu_load[-max_graph_points:]
+		except:
+			pass
 		temperature = None
-		if platform.uname().system == 'Darwin':
-			temperature = 0			# no way to do this easily
-		else:
-			temperature_metrics = psutil.sensors_temperatures()
-			temperature = temperature_metrics.get('cpu-thermal', None)
-			if temperature is None:
-				temperature = temperature_metrics.get('cpu_thermal', None)
-				temperature = int(temperature[0].current)
+		if platform.system() != 'Darwin':
+			temperature_metrics = psutil.sensors_temperatures() or {}
+			for key in ('cpu-thermal', 'cpu_thermal', 'coretemp', 'k10temp', 'soc_thermal'):
+				if temperature_metrics.get(key) is not None:
+					temperature = int(temperature_metrics[key][0].current)
+					break
 		if temperature is not None:
 			self.cpu_temp.append(temperature)
-			if len(self.cpu_temp) > max_graph_points:
-				self.cpu_temp = self.cpu_temp[-max_graph_points:]
+			self.cpu_temp = self.cpu_temp[-max_graph_points:]
 
 	def draw(self):
 		""" Log mode draw method. """
@@ -136,7 +144,7 @@ class Log_Mode(Mode):
 
 		# check page_down and ensure that it has not gone past end of log
 		if self.log_lines_per_page < 1:
-			Log.debug('Log_Mode', 'draw', f'log_lines_per_page = {self.log_lines_per_page}')
+			Log.debug('LogMode', 'draw', f'log_lines_per_page = {self.log_lines_per_page}')
 			return
 		num_pages = math.ceil(len(self.log_text) / self.log_lines_per_page)
 		self.log_page = max(0, min(self.log_page, num_pages - 1))

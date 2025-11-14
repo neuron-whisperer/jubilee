@@ -4,17 +4,18 @@ import os, sys
 from jubilee import App
 from jubilee.base_classes import Button, Mode
 
-class Sound_Music_App(App):
-	""" Sound_Music app. """
+class SoundApp(App):
+	""" Sound app. """
 
 	def init(self):
-		self.add_mode(Sound_Music_Mode)
+		self.add_mode(SoundMode)
 
-class Sound_Music_Mode(Mode):
-	""" Sound_Music mode. """
+class SoundMode(Mode):
+	""" Sound mode. """
 
 	def init(self):
-		self.name = 'Sound_Music'
+
+		self.name = 'Sound'
 
 		# load music filenames
 		music_folder = os.path.join(self.app.base_path, 'music')
@@ -24,12 +25,12 @@ class Sound_Music_Mode(Mode):
 		buttons = [['Next', self.next_music], ['Play', self.play_music],
 			['Stop', self.stop_music]]
 		for i, (text, handler) in enumerate(buttons):
-			self.add_control(Button(self.app, 100+50*i, 50, 40, 40, text, click=handler))
+			self.add_control(Button(text, 100+50*i, 50, 40, 40, click=handler))
 
 		self.sound_index = 0
 		buttons = [['Next', self.next_sound], ['Play', self.play_sound]]
 		for i, (text, handler) in enumerate(buttons):
-			self.add_control(Button(self.app, 100+50*i, 130, 40, 40, text, click=handler))
+			self.add_control(Button(text, 100+50*i, 130, 40, 40, click=handler))
 
 	def next_music(self):
 		""" Click handler for Next Music button. """
@@ -67,4 +68,4 @@ class Sound_Music_Mode(Mode):
 		self.app.draw_text(f'Sound: {sounds[self.sound_index]}', 10, 120, alignment='Left')
 
 if __name__ == '__main__':
-	Sound_Music_App().run()
+	SoundApp().run()

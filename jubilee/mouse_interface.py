@@ -2,10 +2,10 @@
 
 import pygame
 from pygame.event import Event
-from .base_classes import Pointer_Interface
+from .base_classes import PointerInterface
 from .misc import Log
 
-class Mouse_Interface(Pointer_Interface):
+class MouseInterface(PointerInterface):
 	""" Mouse interface class. """
 
 	def handle_event(self, event: Event) -> bool:
@@ -19,5 +19,5 @@ class Mouse_Interface(Pointer_Interface):
 			self.down = False
 			self.x = None; self.y = None
 			return False
-		Log.warning('Mouse_Interface', 'handle_events', f'Could not handle event of type {event.type}')
+		Log.warning('MouseInterface', 'handle_events', f'Could not handle event of type {event.type}')
 		return False

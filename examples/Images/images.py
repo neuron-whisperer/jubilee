@@ -1,8 +1,8 @@
 """ Images Jubilee app. """
 
 import random
-from jubilee import App
-from jubilee.base_classes import Mode, Sprite
+from jubilee import App, Mode
+from jubilee.base_classes import Sprite
 
 class Bubble:
 	""" Bubble class.
@@ -79,15 +79,15 @@ class Player(Sprite):
 		if moving is False:
 			self.set_sequence('standing')
 
-class Images_App(App):
+class ImagesApp(App):
 	""" Images app. """
 
 	def init(self):
 		""" Images app initializer. """
 		
-		self.add_mode(Mode_Images)
+		self.add_mode(ImagesMode)
 
-class Mode_Images(Mode):
+class ImagesMode(Mode):
 	""" Images mode. """
 
 	def init(self):
@@ -119,4 +119,4 @@ class Mode_Images(Mode):
 			b.draw()
 
 if __name__ == '__main__':
-	Images_App().run()
+	ImagesApp().run()

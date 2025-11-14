@@ -24,7 +24,9 @@ class Worker:
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
 		self.config_filename = os.path.join(self.base_path, 'config.txt')
 		self.config = Config.load(self.config_filename, defaults=self.config_defaults)
-		self.config_date = os.path.getmtime(self.config_filename)
+		self.config_date = None
+		if os.path.isfile(self.config_filename) is True:
+			self.config_date = os.path.getmtime(self.config_filename)
 		self.last_periodic = None
 		self.init()
 
@@ -51,7 +53,7 @@ class Worker:
 			self.start_worker()
 
 			while True:
-				loop_start = time.time()
+				loop_start = time.monotonic()
 				self.receive_messages()
 
 				# call main process function
@@ -60,15 +62,15 @@ class Worker:
 				# call periodic process function occasionally
 				process_periodic_fps = self.config.get('worker_process_periodic_fps', 1)
 				if process_periodic_fps is not None:
-					elapsed = time.time() - (self.last_periodic or 0)
+					elapsed = time.monotonic() - (self.last_periodic or 0)
 					if elapsed >= 1 / process_periodic_fps:
-						self.last_periodic = time.time()
+						self.last_periodic = (self.last_periodic or time.monotonic()) + 1.0 / process_periodic_fps
 						if self.config_manager is True:
 							self.manage_config()
 						self.process_periodic()
 
 				# delay to next loop
-				loop_time = time.time() - loop_start
+				loop_time = time.monotonic() - loop_start
 				delay = 1 / max(1, int(self.config.get('worker_process_fps', 10))) - loop_time
 				if delay > 0:
 					time.sleep(delay)
@@ -86,9 +88,9 @@ class Worker:
 			return
 		config_date = os.path.getmtime(self.config_filename)
 		if config_date != self.config_date:
-			Log.info('Worker', 'process_periodic', f'Loading config ({self.config_date} != {config_date})')
+			Log.info('Worker', 'manage_config', f'Loading config ({self.config_date} != {config_date})')
 			self.config_date = config_date
-			self.config = Config.load(self.config_filename)
+			self.config = Config.load(self.config_filename, defaults=self.config_defaults)
 			self.send_updated_config()
 
 	def process(self):
@@ -107,20 +109,23 @@ class Worker:
 
 		if isinstance(message, str):
 			message = {'action': message}
-		self.worker_queue.put(json.dumps(message))
+		try:
+			self.worker_queue.put(json.dumps(message, ensure_ascii=True))
+		except Exception as e:
+			Log.error('Worker', 'send_message', f'Failed to send message: {e}')
 
 	def receive_messages(self):
 		""" Receive messages from app. """
 
-		try:
-			while True:
+		while True:
+			try:
 				message = self.app_queue.get_nowait()
 				self.process_message(json.loads(message))
-		except queue.Empty:
-			return
-		except Exception as e:
-			Log.error('Worker', 'receive_messages', str(e))
-			return
+			except queue.Empty:
+				return
+			except Exception as e:
+				Log.error('Worker', 'receive_messages', str(e))
+				continue
 
 	def process_message(self, message: dict):
 		""" Process a message from app. This method can be extended in subclass. """
@@ -130,7 +135,7 @@ class Worker:
 			key = message.get('key')
 			value = message.get('value')
 			self.update_config(key, value)
-		elif action == 'updated config':
+		elif action == 'config updated':
 			self.config = message.get('config', {})
 		elif action == 'exit':
 			self.exit()
@@ -143,7 +148,7 @@ class Worker:
 
 	def write_config(self):
 		Config.save(self.config, self.config_filename)
-		self.config_date = os.path.getmtime(self.config_filename)
+		self.config_date = os.path.getmtime(self.config_filename) if os.path.isfile(self.config_filename) else None
 		self.send_updated_config()
 
 	def send_updated_config(self):

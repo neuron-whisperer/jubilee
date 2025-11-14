@@ -7,7 +7,8 @@ from pygame.font import Font
 from pygame.surface import Surface
 from pygame.mixer import Sound, Channel
 from .worker import Worker
-from .base_classes import Mode, Animation, AnimationFrame
+from .mode import Mode
+from .base_classes import Animation, AnimationFrame
 from .misc import Config, Log, Color, Misc
 
 class App:
@@ -32,7 +33,7 @@ class App:
 
 		# init pygame
 		self.headless = self.config.get('headless', False)
-		if self.headless:
+		if self.headless is True:
 			Log.info('App', '__init__', 'Running in headless mode')
 			os.environ['SDL_VIDEODRIVER'] = 'dummy'
 		try:
@@ -42,7 +43,7 @@ class App:
 			sys.exit(1)
 
 		self.process_last = 0										# time of last process method
-		self.process_period = 1.0 / int(self.config.get('app_process_fps', 10))
+		self.process_period = 1.0 / max(1, int(self.config.get('app_process_fps', 10)))
 
 		if self.headless is False:
 
@@ -57,7 +58,10 @@ class App:
 				pygame.mouse.set_visible(False)
 				flags = pygame.DOUBLEBUF | pygame.FULLSCREEN | pygame.NOFRAME
 			size = (self.screen_width, self.screen_height)
-			self.window = pygame.display.set_mode(size=size, flags=flags, display=0, vsync=1)
+			try:
+				self.window = pygame.display.set_mode(size=size, flags=flags, display=0, vsync=1)
+			except:
+				self.window = pygame.display.set_mode(size=size, flags=flags, display=0)
 
 			# fade overlay
 			self.display_fade_overlay = Surface(size=size).convert_alpha()
@@ -73,12 +77,12 @@ class App:
 			self.underscore_position = 7						# pixels under text for underscores
 			self.popover_message = None							# current popover message
 			self.popover_steps = 50									# steps
-			self.popover_clear_time = 0							# time to clear popover message
+			self.popover_step = 0										# current popover step
 			self.draw_last = 0											# time of last draw method
 			self.fps_count = 0											# FPS count for last second
 			self.fps_counting = 0										# FPS count for current second
-			self.fps_time = time.time()							# time of current FPS count
-			self.draw_period = 1.0 / int(self.config.get('app_draw_fps', 10))
+			self.fps_time = int(time.monotonic())		# time of current FPS count
+			self.draw_period = 1.0 / max(1, int(self.config.get('app_draw_fps', 10)))
 
 			# fonts
 			self.standard_font_size = int(self.config.get('font_size', 11))
@@ -138,17 +142,15 @@ class App:
 		self.pointer = None
 		if self.headless is False:
 			if platform.uname().system == 'Darwin':
-				from .mouse_interface import Mouse_Interface
-				self.pointer = Mouse_Interface()
-			elif self.config.get('touch_input', True) is True:
-				from .touch_interface import Touch_Interface
+				from .mouse_interface import MouseInterface
+				self.pointer = MouseInterface()
+			elif self.config.get('pointer_input', True) is True:
+				from .touch_interface import TouchInterface
 				scale = self.config.get('screen_scale', [[0, 319, -1], [0, 239, 1]])
 				swap_axes = self.config.get('swap_axes', False)
-				self.pointer = Touch_Interface(resolution=(self.screen_width, self.screen_height), scale=scale, swap_axes=swap_axes)
-			self.pointer_input_last = time.time()			# time of last pointer input
-			self.pointer_input_debouncing = 3					# time between pointer inputs (ms)
-			self.on_click = self.click
-		self.selected_control = None
+				self.pointer = TouchInterface(resolution=(self.screen_width, self.screen_height), scale=scale, swap_axes=swap_axes)
+			self.pointer_input_last = time.monotonic()			# time of last pointer input
+			self.pointer_input_debouncing = 100							# time between pointer inputs (ms)
 
 		# key input
 		self.new_keys = []														# all keys newly pressed this frame
@@ -171,13 +173,13 @@ class App:
 
 		try:
 			while True:
-				if time.time() - self.process_last >= self.process_period:
+				if time.monotonic() - self.process_last >= self.process_period:
 					self.process()
 				if self.headless is False:
-					if time.time() - self.draw_last >= self.draw_period:
+					if time.monotonic() - self.draw_last >= self.draw_period:
 						self.draw()
-				process_delay = self.process_period - (time.time() - self.process_last)
-				draw_delay = 1 if self.headless is True else self.draw_period - (time.time() - self.draw_last)
+				process_delay = self.process_period - (time.monotonic() - self.process_last)
+				draw_delay = 1 if self.headless is True else self.draw_period - (time.monotonic() - self.draw_last)
 				delay = min(process_delay, draw_delay)
 				if delay > 0:
 					time.sleep(delay)
@@ -210,8 +212,9 @@ class App:
 
 		if isinstance(mode, type):		# if mode is provided as a class, instantiate it
 			mode = mode()
-		mode.load_resources(app=self)
+		mode.app = self
 		mode.init()
+		mode.load_resources()
 		self.modes[mode.name] = mode
 		if len(self.modes) == 1:
 			self.set_mode(mode.name)
@@ -230,18 +233,13 @@ class App:
 					mode_parameters:		Parameters for enter() for new mode.
 		"""
 
-		# release selected control, if currently set
-		if self.selected_control is not None:
-			self.selected_control.on_release()
-			self.selected_control = None
-
 		# insert previous_mode into mode_parameters
 		mode_parameters = mode_parameters or {}
 		mode_parameters['previous_mode'] = None if self.mode is None else self.mode.name
 
 		# switch from mode
 		if self.mode is not None:
-			self.mode.exit()
+			self.mode.on_exit()
 
 		# switch to mode
 		new_mode = self.modes.get(mode) if isinstance(mode, str) else mode
@@ -249,67 +247,50 @@ class App:
 			Log.error('App', 'set_mode', f'No known mode named {mode}')
 			return
 		self.mode = new_mode
-		self.mode.mode_timer = 0
-		self.mode.enter(mode_parameters=mode_parameters)
+		self.mode.on_enter(mode_parameters=mode_parameters)
 		submode = mode_parameters.get('submode')
 		if submode is not None:
 			self.mode.set_submode(submode)
 
 	def process(self):
-		""" Main app process method. Calls current mode / submode process method. """
+		""" Main app process method. Calls current mode process method. """
 
 		if self.mode is None:
 			return
 
-		self.process_last = time.time()
+		self.process_last = time.monotonic()
 		self.handle_events()
 		report_threshold = 0.2		# report processing if more than 0.2 seconds
 
 		if self.config.get('modal') is True:
-			start = time.time()
-			try:
-				self.mode.process()
-			except Exception as e:
-				Log.error('App', 'process', f'Exception processing mode {self.mode.name}: {e}')
-			if self.mode.submode is not None and hasattr(self.mode, f'process_{self.mode.submode}'):
-				try:
-					getattr(self.mode, f'process_{self.mode.submode}')()
-				except Exception as e:
-					Log.error('App', 'process', f'Exception processing mode {self.mode.name} submode {self.mode.submode}: {e}')
-			duration = time.time() - start
+			start = time.monotonic()
+			self.mode.on_process()
+			duration = time.monotonic() - start
 			if duration > report_threshold:
 				Log.info('App', 'process', f'Processing mode {self.mode.name} took {duration:.3f} s')
 
 		else:
-			start = time.time()
+			start = time.monotonic()
 			mode_times = {}
 			for mode in self.modes.values():
-				mode_start = time.time()
-				try:
-					mode.process()
-				except Exception as e:
-					Log.error('App', 'process', f'Exception processing mode {mode.name}: {e}')
-				if mode.submode is not None and hasattr(mode, f'process_{mode.submode}'):
-					try:
-						getattr(mode, f'process_{mode.submode}')()
-					except Exception as e:
-						Log.error('App', 'process', f'Exception processing mode {mode.name} submode {mode.submode}: {e}')
-				mode_times[mode.name] = f'{time.time() - mode_start:.3f}'
-			duration = time.time() - start
+				mode_start = time.monotonic()
+				mode.on_process()
+				mode_times[mode.name] = f'{time.monotonic() - mode_start:.3f}'
+			duration = time.monotonic() - start
 			if duration > report_threshold:
 				Log.info('App', 'process', f'Processing modes took {duration:.3f} s')
 				Log.info('App', 'process', f'  Mode times: {mode_times}')
 
 	def draw(self):
-		""" Main draw method. Calls current mode / submode draw method and
+		""" Main draw method. Calls current mode draw method and
 				then draws controls and popover message. """
 
-		self.draw_last = time.time()
+		self.draw_last = time.monotonic()
 
 		try:
 
 			self.fps_counting += 1
-			current_time = int(time.time())
+			current_time = int(time.monotonic())
 			if current_time != self.fps_time:
 				self.fps_time = current_time
 				self.fps_count = self.fps_counting
@@ -317,41 +298,26 @@ class App:
 
 			# draw mode
 			if self.mode is not None:
-				self.mode.mode_timer += 1
-				if self.mode.background_color is not None:
-					self.fill_screen(self.mode.background_color)
-				try:
-					self.mode.draw()
-				except Exception as e:
-					Log.error('App', 'draw', f'Exception drawing mode {self.mode.name}: {e}')
-				if self.mode.submode is not None:
-					if hasattr(self.mode, f'draw_{self.mode.submode}'):
-						self.mode.submode_timer += 1
-						try:
-							getattr(self.mode, f'draw_{self.mode.submode}')()
-						except Exception as e:
-							Log.error('App', 'draw', f'Exception drawing mode {self.mode.name} submode {self.mode.submode}: {e}')
-
-				# draw controls in reverse order, i.e., back-to-front if overlapping
-				for control in reversed(self.mode.controls):
-					control.draw()
+				self.mode.on_draw()
 
 			# draw popover
-			current = time.time()
-			if self.popover_message is not None:
-				if current <= self.popover_clear_time:
+			if self.popover_message is not None and self.popover_steps is not None:
+				if self.popover_step < self.popover_steps:
+					self.popover_step += 1
 					width = min(int(self.screen_width * 0.8), 300)
 					height = 100
 					left = int(self.screen_center - width / 2)
 					top = self.screen_middle - 50
 					self.fill_rect(left, top, width, height, color='black')
 					self.draw_rect(left, top, width, height, color='white')
-					self.draw_text(self.popover_message, self.screen_center, self.screen_middle, color='white', alignment='center')
+					self.center_text(self.popover_message, color='white')
 				else:
 					self.popover_message = None
+					self.popover_steps = None
+					self.popover_step = None
 
 			if self.display_fps:
-				self.draw_text(str(self.fps_count), 20, 20, self.standard_font_sizes[18])
+				self.draw_text(str(self.fps_count), 20, 20, color='white', font=self.standard_font_sizes[18])
 
 			# finalize display
 			self.apply_display_fade()
@@ -384,42 +350,36 @@ class App:
 				self.on_click(self.pointer.x, self.pointer.y)
 
 			# respond to hold and release events, and then update state
-			if self.pointer.down:
-				if self.pointer.held:		# held
-					if self.selected_control is not None:
-						self.selected_control.on_hold()
-					elif self.mode is not None:
-						self.mode.on_hold()
-			elif self.pointer.held:		# released
-				if self.selected_control is not None:
-					self.selected_control.on_release()
-					self.selected_control = None
-				elif self.mode is not None:
-					self.mode.on_release()
+			if self.pointer.down is True:
+				if self.pointer.held is True:		# held
+					self.mode.on_hold()
+			elif self.pointer.held is True:		# released
+				self.mode.on_release()
 
 			# set state for next time
 			self.pointer.held = self.pointer.down
 
 		# register keyboard input
-		pressed_keys = pygame.key.get_pressed()
-		held_keys = list(k for k in Misc.key_names if pressed_keys[pygame.key.key_code(k)])
-		self.new_keys = list(k for k in held_keys if k not in self.held_keys)
-		self.held_keys = held_keys
+		if self.config.get('keyboard_input', False) is True:
+			pressed_keys = pygame.key.get_pressed()
+			held_keys = list(k for k in Misc.key_names if pressed_keys[pygame.key.key_code(k)])
+			self.new_keys = list(k for k in held_keys if k not in self.held_keys)
+			self.held_keys = held_keys
 
-		# update keyboard buffer
-		if self.keyboard_buffering is True:
-			for k in self.new_keys:
-				if k == 'backspace':
-					if len(self.keyboard_buffer_chars) > 0:
-						self.keyboard_buffer_chars = self.keyboard_buffer_chars[:-1]
-						self.keyboard_buffer = self.keyboard_buffer[:-1]
-				elif k not in ('return', 'left shift', 'left ctrl', 'right shift', 'right ctrl', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'insert' ,'home', 'end', 'right', 'left', 'up', 'down', 'delete', 'escape'):
-					self.keyboard_buffer_chars.append(k)
-					if any(k in self.held_keys for k in ['left shift', 'right shift']):
-						if k in Misc.key_shift_symbols:
-							self.keyboard_buffer += Misc.key_shift_symbols[k]
-					elif k in Misc.key_symbols:
-						self.keyboard_buffer += Misc.key_symbols[k]
+			# update keyboard buffer
+			if self.keyboard_buffering is True:
+				for k in self.new_keys:
+					if k == 'backspace':
+						if len(self.keyboard_buffer_chars) > 0:
+							self.keyboard_buffer_chars = self.keyboard_buffer_chars[:-1]
+							self.keyboard_buffer = self.keyboard_buffer[:-1]
+					elif k not in ('return', 'left shift', 'left ctrl', 'right shift', 'right ctrl', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'insert' ,'home', 'end', 'right', 'left', 'up', 'down', 'delete', 'escape'):
+						self.keyboard_buffer_chars.append(k)
+						if any(shift in self.held_keys for shift in ['left shift', 'right shift']):
+							if k in Misc.key_shift_symbols:
+								self.keyboard_buffer += Misc.key_shift_symbols[k]
+						elif k in Misc.key_symbols:
+							self.keyboard_buffer += Misc.key_symbols[k]
 
 		self.receive_messages()
 
@@ -508,21 +468,20 @@ class App:
 		color = Misc.get_color(color)
 		surface = font.render(text, True, color)
 		(width, height) = surface.get_size()
-		left = int(x - width / 2)
 		top = int(y - height / 2)
-		left = x
+		left = int(x)
 		if alignment == 'center':
 			left = int(x - width / 2)
 		elif alignment == 'right':
 			left = int(x - width)
 		dest.blit(surface, (left, top))
 
-	def draw_text_center(self, text: str, y: int|float=None, color='white', font: str|Font=None, dest: Surface=None):
+	def center_text(self, text: str, y: int|float=None, color='white', font: str|Font=None, dest: Surface=None):
 		""" Draws horizontally (and, optionally, vertically) centered text. """
 
 		dest = dest or self.window
 		x = dest.get_size()[0] / 2
-		y = y or dest.get_size()[1] / 2
+		y = dest.get_size()[1] / 2 if y is None else y
 		self.draw_text(text, x, y, color=color, font=font, alignment='center', dest=dest)
 
 	def get_text_size(self, text: str, font: str|Font=None):
@@ -540,7 +499,7 @@ class App:
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
-		dest.set_at((x, y), color)
+		dest.set_at((int(x), int(y)), color)
 
 	def draw_line(self, x1: int|float, y1: int|float, x2: int|float, y2: int|float, width: int|float=1, color='white', dest: Surface=None):
 		""" Draws pixel at coordinate. """
@@ -583,7 +542,7 @@ class App:
 		self.draw_circle(x, y, radius=radius, width=0, color=color, dest=dest)
 
 	def draw_arc(self, x: int|float, y: int|float, width: int|float, height: int|float, start_angle: int|float, stop_angle: int|float, line_width: int|float=1, color='white', dest: Surface=None):
-		""" Draws arc at coordinate. """
+		""" Draws arc at x/y coordinate from start_angle (degrees) to stop_angle (degrees). """
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
@@ -595,7 +554,7 @@ class App:
 		""" Creates a new pygame surface with given dimensions.
 				Alpha blend specifies a surface with alpha transparency. """
 
-		flags=flags or 0
+		x = int(x); y = int(y); flags=flags or 0
 		if alpha_blend:
 			flags = flags | pygame.SRCALPHA
 		surface = Surface((x, y), flags=flags)
@@ -669,25 +628,23 @@ class App:
 			Log.error('App', 'load_image', str(e))
 			return None
 
-	def get_image(self, image_name: str|Surface) -> Surface|None:
+	def get_image(self, image: str|Surface) -> Surface|None:
 		""" Finds an image by name or path. """
 
-		if isinstance(image_name, Surface):
-			return image_name
-		if isinstance(image_name, str) is False:
-			Log.error('App', 'get_image', f'Could not identify image of type {type(image_name)}')
+		if isinstance(image, Surface):
+			return image
+		if isinstance(image, str) is False:
+			Log.error('App', 'get_image', f'Could not identify image of type {type(image)}')
 			return None
-		image = self.mode.images.get(image_name)							# first, check mode image library
-		image = image or self.images.get(image_name)					# next, check app image library
-		try:
-			image = image or self.load_image(image_name)				# finally, try to load from path
-		except:
-			pass
-		return image
+		# in order: check mode image library, then app image library, and lastly try to load
+		i = self.mode.images.get(image) if self.mode is not None else None
+		i = i or self.images.get(image)
+		i = i or self.load_image(image)
+		return i
 
-	def blit(self, image: str|Surface, x: int|float, y: int|float, position: str=None, scale: int|float=None, area: Rect=None, flags: int=None, dest: Surface=None):
+	def blit(self, image: str|Surface, x: int|float, y: int|float, position: str=None, scale: int|float|tuple=None, area: Rect=None, flags: int=None, dest: Surface=None):
 		""" Blits image to dest at coordinates.
-				Optionally scale to (width, height).
+				Optionally scale by factor or to (width, height).
 				Optionally specify an area of the source image (post-scaling).
 				Position can be topleft (default), center, or bottom.
 				Surfaces that have an alpha channel are blitted with pygame.BLEND_ALPHA_SDL2. """
@@ -701,7 +658,11 @@ class App:
 		if i.get_alpha() is not None:
 			flags = flags | pygame.BLEND_ALPHA_SDL2
 		try:
-			i = self.scale_image(i, scale) if scale else i
+			if scale is not None:
+				if isinstance(scale, tuple):
+					i = self.scale_image(i, scale[0], scale[1])
+				else:
+					i = self.scale_image(i, scale)
 			if position == 'center':
 				size = i.get_size()
 				x -= size[0] / 2; y -= size[1] / 2
@@ -712,7 +673,7 @@ class App:
 		except Exception as e:
 			Log.error('App', 'blit', str(e))
 
-	def scale_image(self, image: str|Surface, x_scale, y_scale=None) -> Surface|None:
+	def scale_image(self, image: str|Surface, x_scale: int|float, y_scale: int|float=None) -> Surface|None:
 		""" Scales image. Scale proportionally (omit y_scale) or disproportionately. """
 
 		i = self.get_image(image)
@@ -720,14 +681,14 @@ class App:
 			Log.error('App', 'scale_image', f'Could not get image of type {image}')
 			return None
 		y_scale = y_scale or x_scale
-		return pygame.transform.scale(i, (x_scale, y_scale))
+		return pygame.transform.scale(i, (int(x_scale), int(y_scale)))
 
 	def flip_image(self, image: str|Surface, horizontal: bool=False, vertical: bool=False) -> Surface|None:
 		""" Flips image. """
 
 		i = self.get_image(image)
 		if i is None:
-			Log.error('App', 'blit', f'Could not get image of type {image}')
+			Log.error('App', 'flip_image', f'Could not get image of type {image}')
 			return None
 		return pygame.transform.flip(i, horizontal, vertical)
 
@@ -741,7 +702,7 @@ class App:
 		return pygame.transform.rotate(i, degrees)
 
 	def shift_image_hue(self, image: str|Surface, delta: int|float) -> Surface|None:
-		""" Shifts image hue by a delta value (range 0-100). """
+		""" Shifts image hue by a delta value (range 0-360). """
 
 		i = self.get_image(image)
 		if i is None:
@@ -751,10 +712,9 @@ class App:
 		pixels = pygame.PixelArray(i)
 		for x in range(i.get_width()):
 			for y in range(i.get_height()):
-				rgb = image.unmap_rgb(pixels[x][y])
-				color = pygame.Color(*rgb)
+				color = i.unmap_rgb(pixels[x][y])
 				h, s, l, a = color.hsla
-				color.hsla = (int(h) + (delta * 360 / 100)) % 360, int(s), int(l), int(a)
+				color.hsla = (int(h) + int(delta)) % 360, int(s), int(l), int(a)
 				pixels[x][y] = color
 		del pixels
 		return i
@@ -763,13 +723,14 @@ class App:
 		""" Creates a popover message. """
 
 		self.popover_message = message
-		self.popover_clear_time = time.time() + (steps or self.popover_steps / 1000)
+		self.popover_steps = steps if steps is not None else int(self.config.get('app_draw_fps', 10) * 0.75)
+		self.popover_step = 0
 
 	def start_display_fade(self, steps: int=None, color='black', end_mode: str=None, end_parameters: dict=None):
 		""" Sets fade-in or fade-out.
-				Positive steps = fade in from zero and increase over specified number of frames.
-				Negative steps = fade out over specified number of frames and then, optionally,
-					call set_mode with the specified mode and parameters.
+				Positive steps = fade in from solid and increase over specified steps.
+				Negative steps = fade out to solid over specified steps.
+				Optionally, call set_mode with the specified mode and parameters at end of fade.
 				None or zero steps will cancel current fade.
 		"""
 
@@ -778,31 +739,32 @@ class App:
 			self.display_fade_step = None
 			self.display_fade_end_mode = None
 			self.display_fade_end_parameters = None
-		else:
-			self.display_fade_overlay.fill(color, (0, 0, self.screen_width, self.screen_height))
-			self.display_fade_steps = steps
-			self.display_fade_step = 0
-			self.display_fade_end_mode = end_mode
-			self.display_fade_end_parameters = end_parameters
+			return
+		c = Misc.get_color(color)
+		self.display_fade_overlay.fill(c, (0, 0, self.screen_width, self.screen_height))
+		self.display_fade_steps = steps
+		self.display_fade_step = 0
+		self.display_fade_end_mode = end_mode
+		self.display_fade_end_parameters = end_parameters
 
 	def apply_display_fade(self):
 		if self.display_fade_steps is None or self.display_fade_step is None:
 			return
 		self.display_fade_step += 1
-		if self.display_fade_step >= self.display_fade_steps:
-			self.display_fade_steps = None
-			self.display_fade_step = None
+		total_steps = abs(self.display_fade_steps)
+		fade = min(1.0, self.display_fade_step / total_steps)
+		alpha = int(255 * (fade if self.display_fade_steps < 0 else (1.0 - fade)))
+		self.display_fade_overlay.set_alpha(alpha)
+		self.window.blit(self.display_fade_overlay, (0, 0), special_flags=pygame.BLEND_ALPHA_SDL2)
+		if self.display_fade_step >= total_steps:
 			end_mode = self.display_fade_end_mode
 			end_parameters = self.display_fade_end_parameters
+			self.display_fade_steps = None
+			self.display_fade_step = None
 			self.display_fade_end_mode = None
 			self.display_fade_end_parameters = None
 			if end_mode is not None:
 				self.set_mode(end_mode, end_parameters)
-			return
-		alpha = self.display_fade_step / self.display_fade_steps
-		alpha = (1.0 if self.display_fade_steps > 0 else 0.0) - alpha
-		self.display_fade_overlay.set_alpha(alpha)
-		self.window.blit(self.display_fade_overlay, (0, 0), special_flags=pygame.BLEND_ALPHA_SDL2)
 
 	# sound functions
 
@@ -846,9 +808,10 @@ class App:
 		if isinstance(sound, str) is False:
 			Log.error('App', 'get_sound', f'Could not identify sound of type {type(sound)}')
 			return None
-		s = self.mode.sounds.get(sound, None)			# first, check mode sound library
-		s = s or self.sounds.get(sound, None)			# next, check app sound library
-		s = s or self.load_sound(sound)						# finally, try to load from path
+		# in order: check mode sound library, then app sound library, and lastly try to load
+		s = self.mode.sounds.get(sound, None) if self.mode is not None else None
+		s = s or self.sounds.get(sound, None)
+		s = s or self.load_sound(sound)
 		return s
 
 	def play_sound(self, sound: str|Sound, loops: int=None, volume: int|float=None):
@@ -970,14 +933,12 @@ class App:
 			return
 
 		self.music_fade_step += 1
+		level = max(0.0, 1.0 - (self.music_fade_step / float(self.music_fade_steps)))
+		pygame.mixer.music.set_volume((self.music_volume * level) / 100.0)
 		if self.music_fade_step >= self.music_fade_steps:
 			pygame.mixer.music.stop()
-			pygame.mixer.music.set_volume(self.music_volume)
+			pygame.mixer.music.set_volume(self.music_volume / 100.0)
 			self.music_fade_steps = self.music_fade_step = None
-			return
-
-		volume = self.music_volume * (self.music_fade_step / self.music_fade_steps) / 100.0
-		pygame.mixer.music.set_volume(volume)
 
 	# app state methods
 
@@ -999,7 +960,7 @@ class App:
 				Log.error('App', 'load_app_state', str(e))
 				self.app_state = {}
 
-	def set_state_parameter(self, key, value):
+	def set_app_state(self, key, value):
 		""" Sets app state key/value pair and saves state. """
 
 		self.app_state[key] = value
@@ -1010,7 +971,7 @@ class App:
 		""" Saves script state. """
 
 		with open(self.app_state_filename, 'wt', encoding='UTF-8') as f:
-			f.write(json.dumps(self.app_state))
+			f.write(json.dumps(self.app_state, ensure_ascii=True))
 		Log.debug('App', 'save_app_state', 'Saved app state')
 
 	# script and scene methods
@@ -1060,14 +1021,14 @@ class App:
 				Log.error('App', 'select_scene', f'Unknown scene {scene_id}')
 				return
 			scene_number = matches[0]
-		self.set_state_parameter('scene', scene_number)
+		self.set_app_state('scene', scene_number)
 		scene = self.script[scene_number]
 		mode_name = scene.get('mode')
 		if mode_name not in self.modes:
 			Log.error('App', 'select_scene', f'No mode named {mode_name}')
 			return
 		self.set_mode(mode_name, mode_parameters=scene.copy())
-		Log.debug('App', 'select_scene', 'Selected scene {scene_number} ({scene})')
+		Log.debug('App', 'select_scene', f'Selected scene {scene_number} ({scene})')
 
 	def advance_scene(self, delta: int=1):
 		""" Advances to indicated scene. """
@@ -1076,31 +1037,18 @@ class App:
 
 	# pointer input methods
 
-	def click(self, x: int|float, y: int|float):
+	def on_click(self, x: int|float, y: int|float):
 		""" Mode click event handler. """
 
 		# debouncing check
-		if self.pointer_input_last is not None and time.time() < self.pointer_input_last + self.pointer_input_debouncing / 1000:
+		if self.pointer_input_last is not None and time.monotonic() < self.pointer_input_last + self.pointer_input_debouncing / 1000:
 			return
 
 		if x is None or y is None:
 			return
 
-		self.pointer_input_last = time.time()
-		self.selected_control = None
-		if self.mode is not None:
-			for control in self.mode.controls:
-				if control.collide(x, y):
-					self.selected_control = control
-					control.on_click()
-					return
-			if self.mode.submode is not None and hasattr(self.mode, f'click_{self.mode.submode}'):
-				try:
-					getattr(self.mode, f'click_{self.mode.submode}')(x, y)
-				except Exception as e:
-					Log.error('App', 'click', f'Exception clicking mode {self.mode.name} submode {self.mode.submode}: {e}')
-			else:
-				self.mode.on_click(x, y)
+		self.pointer_input_last = time.monotonic()
+		self.mode.on_click(x, y)
 
 	# keyboard input methods
 
@@ -1126,12 +1074,12 @@ class App:
 	def create_rect(self, width: int|float, height: int|float):
 		""" Returns a pygame.Rect. """
 
-		return Rect(width, height)
+		return Rect(0, 0, int(width), int(height))
 
 	def create_font(self, name='Arial', size=12):
 		""" Creates a font. """
 
-		return Font(name, size=size)
+		return pygame.font.SysFont(name, size)
 
 	def set_standard_font(self):
 		""" Sets default font, including a range of sizes. """
@@ -1161,7 +1109,6 @@ class App:
 	def register_exit_handlers(self):
 		""" Registers handlers to ensure that pygame.quit() is called. """
 
-		pygame.quit()
 		atexit.register(self.exit)
 		for s in [signal.SIGABRT, signal.SIGINT, signal.SIGTERM]:
 			signal.signal(s, lambda *_: sys.exit(0))
@@ -1175,7 +1122,10 @@ class App:
 				self.send_message('exit', worker.name)
 		if self.pointer is not None:
 			self.pointer.release()
-		sys.exit(code)
+		try:
+			pygame.quit()
+		finally:
+			sys.exit(code)
 
 	def reboot(self):
 		""" Reboots device. """
@@ -1198,7 +1148,7 @@ class App:
 		""" Checks for another running process of the same name. """
 
 		script_name = os.path.basename(__main__.__file__)
-		with subprocess.Popen(f'ps -ef | grep {process_name or script_name}', shell=True, stdout=subprocess.PIPE) as ps:
+		with subprocess.Popen(f'ps -ef | grep -v grep | grep {process_name or script_name}', shell=True, stdout=subprocess.PIPE) as ps:
 			output = ps.stdout.read(); ps.stdout.close(); ps.wait()
 			output = list(o.strip() for o in output.decode('UTF-8').split('\n') if len(o.strip()) > 0)
 			running_processes = list(list(o.strip() for o in line.split(' ') if len(o.strip()) > 0) for line in output if 'python' in line)

@@ -1,18 +1,18 @@
 """ Script Jubilee app. """
 
 import random, sys
-from jubilee import App
-from jubilee.base_classes import Button, Mode
+from jubilee import App, Mode
+from jubilee.controls import Button
 from jubilee.misc import Log, Misc
 
-class Script_App(App):
+class ScriptApp(App):
 	""" Script app. """
 
 	def init(self):
-		self.add_modes([Main_Mode, Graphic_Mode, Sound_Mode])
+		self.add_modes([MainMode, GraphicMode, SoundMode])
 		self.run_script()
 
-class Main_Mode(Mode):
+class MainMode(Mode):
 	""" Main mode. """
 
 	def init(self):
@@ -24,16 +24,16 @@ class Main_Mode(Mode):
 		""" ask_graphic submode enter method. """
 
 		self.remove_controls()
-		button_cat = Button(self.app, self.app.screen_center - 150, 50, 100, 50, 'Cat', click=lambda: self.select_graphic('cat'))
+		button_cat = Button('Cat', self.app.screen_center - 150, 50, 100, 50, click=lambda: self.select_graphic('cat'))
 		self.add_control(button_cat)
-		button_dog = Button(self.app, self.app.screen_center + 50, 50, 100, 50, 'Dog',  click=lambda: self.select_graphic('dog'))
+		button_dog = Button('Dog', self.app.screen_center + 50, 50, 100, 50, click=lambda: self.select_graphic('dog'))
 		self.add_control(button_dog)
 		self.graphic = None
 	
 	def draw_ask_graphic(self):
 		""" ask_graphic submode draw method. """
 		
-		self.app.draw_text_center('Select Graphic', 20)
+		self.app.center_text('Select Graphic', 20)
 
 	def select_graphic(self, graphic):
 		""" Select graphic method. """
@@ -44,16 +44,16 @@ class Main_Mode(Mode):
 		""" ask_sound submode enter method. """
 
 		self.remove_controls()
-		button_meow = Button(self.app, self.app.screen_center - 150, 50, 100, 50, 'Meow', click=lambda: self.select_sound('meow'))
+		button_meow = Button('Meow', self.app.screen_center - 150, 50, 100, 50, click=lambda: self.select_sound('meow'))
 		self.add_control(button_meow)
-		button_woof = Button(self.app, self.app.screen_center + 50, 50, 100, 50, 'Woof',  click=lambda: self.select_sound('woof'))
+		button_woof = Button('Woof', self.app.screen_center + 50, 50, 100, 50, click=lambda: self.select_sound('woof'))
 		self.add_control(button_woof)
 		self.graphic = None
 
 	def draw_ask_sound(self):
 		""" ask_sound submode draw method. """
 		
-		self.app.draw_text_center('Select Sound', 20)
+		self.app.center_text('Select Sound', 20)
 
 	def select_sound(self, sound):
 		self.app.advance_scene(1 if sound == 'meow' else 2)
@@ -61,13 +61,13 @@ class Main_Mode(Mode):
 	def draw_finish(self):
 		""" finish submode draw method. """
 		
-		self.app.draw_text_center('The End', 20)
+		self.app.center_text('The End', 20)
 
 	def enter_finish(self, mode_parameters: dict=None):
 		""" finish submode enter method. """
 
 		self.remove_controls()
-		button_restart = Button(self.app, self.app.screen_center - 50, 50, 100, 50, 'Restart', click=self.restart_mode)
+		button_restart = Button('Restart', self.app.screen_center - 50, 50, 100, 50, click=self.restart_mode)
 		self.add_control(button_restart)
 
 	def restart_mode(self):
@@ -75,7 +75,7 @@ class Main_Mode(Mode):
 
 		self.app.select_scene('Select_Graphic')
 
-class Graphic_Mode(Mode):
+class GraphicMode(Mode):
 	""" Graphic mode. """
 
 	def init(self):
@@ -99,7 +99,7 @@ class Graphic_Mode(Mode):
 		elif self.graphic == 'cat':
 			self.app.blit('cat', 0, 0)
 
-class Sound_Mode(Mode):
+class SoundMode(Mode):
 	""" Sound mode. """
 
 	def init(self):
@@ -110,9 +110,9 @@ class Sound_Mode(Mode):
 
 		self.sound = mode_parameters.get('sound')
 		self.remove_controls()
-		button_play = Button(self.app, self.app.screen_center - 50, 50, 100, 50, 'Play Sound', click=self.play_sound)
+		button_play = Button('Play Sound', self.app.screen_center - 50, 50, 100, 50, click=self.play_sound)
 		self.add_control(button_play)
-		button_continue = Button(self.app, self.app.screen_center - 50, 120, 100, 50, 'Continue', click=lambda: self.app.select_scene('Finish'))
+		button_continue = Button('Continue', self.app.screen_center - 50, 120, 100, 50, click=lambda: self.app.select_scene('Finish'))
 		self.add_control(button_continue)
 
 	def play_sound(self):
@@ -123,7 +123,7 @@ class Sound_Mode(Mode):
 	def draw(self):
 		""" Mode sound draw method. """
 
-		self.app.draw_text_center(f'Ready to play sound: {self.sound}', 20)
+		self.app.center_text(f'Ready to play sound: {self.sound}', 20)
 
 if __name__ == '__main__':
-	Script_App().run()
+	ScriptApp().run()

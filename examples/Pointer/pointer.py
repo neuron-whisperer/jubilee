@@ -1,8 +1,7 @@
 """ Pointer Jubilee app. """
 
 import random
-from jubilee import App
-from jubilee.base_classes import Mode
+from jubilee import App, Mode
 
 class Circle:
 	""" Pointer Circle class. """
@@ -30,13 +29,13 @@ class Circle:
 		self.app.fill_circle(self.radius, self.radius, self.radius, color=self.color, dest=c)
 		self.app.blit(c, self.x-self.radius, self.y-self.radius)
 
-class Pointer_App(App):
+class PointerApp(App):
 	""" Pointer app. """
 
 	def init(self):
-		self.add_mode(Pointer_Mode)
+		self.add_mode(PointerMode)
 
-class Pointer_Mode(Mode):
+class PointerMode(Mode):
 	""" Pointer mode. """
 
 	def init(self):
@@ -60,7 +59,7 @@ class Pointer_Mode(Mode):
 
 		for c in self.circles:
 			c.draw()
-		self.app.draw_text_center('Click anywhere!')
+		self.app.center_text('Click anywhere!')
 
 if __name__ == '__main__':
-	Pointer_App().run()
+	PointerApp().run()
