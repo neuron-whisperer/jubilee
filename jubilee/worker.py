@@ -55,7 +55,7 @@ class Worker:
 			self.start_worker()
 
 			while True:
-				loop_start = time.monotonic()
+				loop_start = time.time()
 				self.receive_messages()
 
 				# call main process function
@@ -64,9 +64,9 @@ class Worker:
 				# call periodic process function occasionally
 				process_periodic_fps = self.config.get('worker_process_periodic_fps', 1)
 				if process_periodic_fps is not None:
-					elapsed = time.monotonic() - (self.last_periodic or 0)
+					elapsed = time.time() - (self.last_periodic or 0)
 					if elapsed >= 1 / process_periodic_fps:
-						self.last_periodic = (self.last_periodic or time.monotonic()) + 1.0 / process_periodic_fps
+						self.last_periodic = (self.last_periodic or time.time()) + 1.0 / process_periodic_fps
 						if self.config_manager is True:
 							self.manage_config()
 						if self.log_manager is True:
@@ -74,7 +74,7 @@ class Worker:
 						self.process_periodic()
 
 				# delay to next loop
-				loop_time = time.monotonic() - loop_start
+				loop_time = time.time() - loop_start
 				delay = 1 / max(1, int(self.config.get('worker_process_fps', 10))) - loop_time
 				if delay > 0:
 					time.sleep(delay)

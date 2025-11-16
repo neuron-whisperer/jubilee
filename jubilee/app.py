@@ -87,7 +87,7 @@ class App:
 			self.draw_last = 0											# time of last draw method
 			self.fps_count = 0											# FPS count for last second
 			self.fps_counting = 0										# FPS count for current second
-			self.fps_time = int(time.monotonic())		# time of current FPS count
+			self.fps_time = int(time.time())				# time of current FPS count
 			self.draw_period = 1.0 / max(1, int(self.config.get('app_draw_fps', 10)))
 
 			# fonts
@@ -155,8 +155,8 @@ class App:
 				scale = self.config.get('screen_scale', [[0, 319, -1], [0, 239, 1]])
 				swap_axes = self.config.get('swap_axes', False)
 				self.pointer = TouchInterface(resolution=(self.screen_width, self.screen_height), scale=scale, swap_axes=swap_axes)
-			self.pointer_input_last = time.monotonic()			# time of last pointer input
-			self.pointer_input_debouncing = 100							# time between pointer inputs (ms)
+			self.pointer_input_last = time.time()				# time of last pointer input
+			self.pointer_input_debouncing = 100					# time between pointer inputs (ms)
 
 		# key input
 		self.new_keys = []														# all keys newly pressed this frame
@@ -179,13 +179,13 @@ class App:
 
 		try:
 			while True:
-				if time.monotonic() - self.process_last >= self.process_period:
+				if time.time() - self.process_last >= self.process_period:
 					self.process()
 				if self.headless is False:
-					if time.monotonic() - self.draw_last >= self.draw_period:
+					if time.time() - self.draw_last >= self.draw_period:
 						self.draw()
-				process_delay = self.process_period - (time.monotonic() - self.process_last)
-				draw_delay = 1 if self.headless is True else self.draw_period - (time.monotonic() - self.draw_last)
+				process_delay = self.process_period - (time.time() - self.process_last)
+				draw_delay = 1 if self.headless is True else self.draw_period - (time.time() - self.draw_last)
 				delay = min(process_delay, draw_delay)
 				if delay > 0:
 					time.sleep(delay)
@@ -266,11 +266,11 @@ class App:
 			return
 
 		try:
-			self.process_last = time.monotonic()
+			self.process_last = time.time()
 			self.handle_events()
 			report_threshold = 0.2		# report processing if more than 0.2 seconds
 	
-			start = time.monotonic()
+			start = time.time()
 			if self.config.get('modal') is True:			# only process current mdoe
 				if self.mode is None:
 					return
@@ -278,19 +278,19 @@ class App:
 					self.mode.on_process()
 				except Exception as e:
 					Log.error(f'Error processing mode {self.mode.name}: {e}')
-				duration = time.monotonic() - start
+				duration = time.time() - start
 				if duration > report_threshold:
 					Log.info(f'Processing mode {self.mode.name} took {duration:.3f}')
 			else:																			# process all modes
 				mode_times = {}
 				for mode in self.modes.values():
-					mode_start = time.monotonic()
+					mode_start = time.time()
 					try:
 						mode.on_process()
 					except Exception as e:
 						Log.error(f'Error processing mode {mode.name}: {e}')
-					mode_times[mode.name] = f'{time.monotonic() - mode_start:.3f}'
-				duration = time.monotonic() - start
+					mode_times[mode.name] = f'{time.time() - mode_start:.3f}'
+				duration = time.time() - start
 				if duration > report_threshold:
 					Log.info(f'Processing modes took {duration:.3f} s')
 					Log.info(f'  Mode times: {mode_times}')
@@ -301,12 +301,12 @@ class App:
 		""" Main draw method. Calls current mode draw method and
 				then draws controls and popover message. """
 
-		self.draw_last = time.monotonic()
+		self.draw_last = time.time()
 
 		try:
 
 			self.fps_counting += 1
-			current_time = int(time.monotonic())
+			current_time = int(time.time())
 			if current_time != self.fps_time:
 				self.fps_time = current_time
 				self.fps_count = self.fps_counting
@@ -1060,13 +1060,13 @@ class App:
 		""" Mode click event handler. """
 
 		# debouncing check
-		if self.pointer_input_last is not None and time.monotonic() < self.pointer_input_last + self.pointer_input_debouncing / 1000:
+		if self.pointer_input_last is not None and time.time() < self.pointer_input_last + self.pointer_input_debouncing / 1000:
 			return
 
 		if x is None or y is None:
 			return
 
-		self.pointer_input_last = time.monotonic()
+		self.pointer_input_last = time.time()
 		self.mode.on_click(x, y)
 
 	# keyboard input methods
