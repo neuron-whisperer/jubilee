@@ -183,14 +183,17 @@ class Mode:
 
 		if self.submode is not None and hasattr(self, f'process_{self.submode}'):
 			try:
-				getattr(self, f'process_{self.submode}')()
+				try:
+					getattr(self, f'process_{self.submode}')()
+				except Exception as e:
+					Log.error(f'Error processing mode {self.name} submode {self.submode}: {e}')			
 			except Exception as e:
 				Log.error(f'Exception processing mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.process()
 			except Exception as e:
-				Log.error(e)
+				Log.error(f'Error processing mode {self.name}: {e}')
 
 	def process(self):
 		""" Mode process method. """

@@ -18,11 +18,11 @@ class HelloWorker(Worker):
 		""" Periodic (low-frequency) worker processing. """
 		super().process_periodic()
 
-	def process_message(self, message):
+	def process_message(self, message, sender: str=None):
 		""" Process a message from app. """
 
 		action = message.get('action', None)
 		if action == 'custom action':
 			pass
 		else:
-			super().process_message(message)
+			super().process_message(message, sender)

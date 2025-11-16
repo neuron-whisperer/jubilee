@@ -14,20 +14,19 @@ class HeadlessApp(App):
 		self.add_mode(HeadlessMode)
 		self.pings = {}
 
-	def process_message(self, message):
+	def process_message(self, message, sender: str=None):
 		""" Process message from worker. """
 
 		action = message.get('action')
 		if action == 'pong':		# process message
 			ping_id = message.get('id')
-			worker = message.get('worker')
 			if ping_id not in self.pings:
 				Log.error(f'Ping ID {ping_id} not pings')
 			else:
 				self.pings[ping_id] = True
-				Log.info(f'Received pong: {ping_id} from {worker}')
+				Log.info(f'Received pong: {ping_id} from {sender}')
 		else:
-			super().process_message(message)
+			super().process_message(message, sender)
 
 class HeadlessMode(Mode):
 	""" No_Display mode. """

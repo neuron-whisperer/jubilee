@@ -10,14 +10,14 @@ class SubmodesApp(App):
 	def init(self):
 		self.add_mode(MainMode)
 
-	def process_message(self, message):
+	def process_message(self, message, sender: str=None):
 		""" Process message from worker. """
 
 		action = message.get('action')
 		if action == 'custom action':		# process message
 			pass
 		else:
-			super().process_message(message)
+			super().process_message(message, sender)
 
 class MainMode(Mode):
 	""" Main mode. """

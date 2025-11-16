@@ -70,10 +70,27 @@ class Log:
 	file_levels = {}
 	console_level = logging.WARNING
 
-	formatter = logging.Formatter(
-		'%(asctime)s %(class_name)-22s %(function_name)-15s %(levelname)-7s %(message)s',
-		datefmt='%Y%m%d %H:%M:%S'
-	)
+	format_string = f'%(asctime)s\t%(class_name)s\t%(function_name)s\t%(levelname)s\t%(message)s'
+	formatter = logging.Formatter(format_string, datefmt='%Y%m%d %H:%M:%S')
+
+	@classmethod
+	def parse(cls, record: str) -> dict|None:
+		""" Parses log message string into fields. """
+		
+		record = record.strip()
+		try:
+			fields = record.split('\t')
+			if len(fields) != 5:
+				return None
+			dt = datetime.datetime.strptime(fields[0].strip(), '%Y%m%d %H:%M:%S')
+			class_name = fields[1].strip()
+			method_name = fields[2].strip()
+			level = fields[3].strip()
+			message = fields[4].strip()
+			return {'dt': dt, 'class': class_name, 'method': method_name, 'level': level, 'message': message}
+		except Exception as e:
+			Log.error(f'Could not parse {record}: {e}')
+			return None
 
 	@classmethod
 	def get_logger(cls, filename: str=None) -> logging.Logger:

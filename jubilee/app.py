@@ -265,28 +265,37 @@ class App:
 		if self.mode is None:
 			return
 
-		self.process_last = time.monotonic()
-		self.handle_events()
-		report_threshold = 0.2		# report processing if more than 0.2 seconds
-
-		start = time.monotonic()
-		if self.config.get('modal') is True:			# only process current mdoe
-			if self.mode is None:
-				return
-			self.mode.on_process()
-			duration = time.monotonic() - start
-			if duration > report_threshold:
-				Log.info(f'Processing mode {self.mode.name} took {duration:.3f}')
-		else:																			# process all modes
-			mode_times = {}
-			for mode in self.modes.values():
-				mode_start = time.monotonic()
-				mode.on_process()
-				mode_times[mode.name] = f'{time.monotonic() - mode_start:.3f}'
-			duration = time.monotonic() - start
-			if duration > report_threshold:
-				Log.info(f'Processing modes took {duration:.3f} s')
-				Log.info(f'  Mode times: {mode_times}')
+		try:
+			self.process_last = time.monotonic()
+			self.handle_events()
+			report_threshold = 0.2		# report processing if more than 0.2 seconds
+	
+			start = time.monotonic()
+			if self.config.get('modal') is True:			# only process current mdoe
+				if self.mode is None:
+					return
+				try:
+					self.mode.on_process()
+				except Exception as e:
+					Log.error(f'Error processing mode {self.mode.name}: {e}')
+				duration = time.monotonic() - start
+				if duration > report_threshold:
+					Log.info(f'Processing mode {self.mode.name} took {duration:.3f}')
+			else:																			# process all modes
+				mode_times = {}
+				for mode in self.modes.values():
+					mode_start = time.monotonic()
+					try:
+						mode.on_process()
+					except Exception as e:
+						Log.error(f'Error processing mode {mode.name}: {e}')
+					mode_times[mode.name] = f'{time.monotonic() - mode_start:.3f}'
+				duration = time.monotonic() - start
+				if duration > report_threshold:
+					Log.info(f'Processing modes took {duration:.3f} s')
+					Log.info(f'  Mode times: {mode_times}')
+		except Exception as e:
+			Log.error(e)
 
 	def draw(self):
 		""" Main draw method. Calls current mode draw method and
@@ -305,7 +314,10 @@ class App:
 
 			# draw mode
 			if self.mode is not None:
-				self.mode.on_draw()
+				try:
+					self.mode.on_draw()
+				except Exception as e:
+					Log.error(f'Error drawing mode {self.mode.name}: {e}')
 
 			# draw popover
 			if self.popover_message is not None and self.popover_steps is not None:
@@ -417,14 +429,14 @@ class App:
 			try:
 				while True:
 					message = worker.worker_queue.get_nowait()
-					self.process_message(json.loads(message))
+					self.process_message(json.loads(message), sender=worker.name)
 			except queue.Empty:
 				continue
 			except Exception as e:
 				Log.error(e)
 				continue
 
-	def process_message(self, message: dict):
+	def process_message(self, message: dict, sender: str=None):
 		""" Processes a message from worker. """
 
 		action = message.get('action')

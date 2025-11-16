@@ -13,7 +13,7 @@ class HeadlessWorker(Worker):
 		self.name = f'Worker {int(time.time()) % 100}'
 		Log.set_console_level(Log.INFO)
 
-	def process_message(self, message):
+	def process_message(self, message, sender: str=None):
 		""" Process a message from app. """
 
 		action = message.get('action', None)
@@ -23,4 +23,4 @@ class HeadlessWorker(Worker):
 			message['worker'] = self.name
 			self.send_message(message)
 		else:
-			super().process_message(message)
+			super().process_message(message, sender)

@@ -40,14 +40,14 @@ class Example_App(App):
         self.add_worker(Example_Worker)
         self.add_mode(Example_Mode)
 
-    def process_message(self, message):
+    def process_message(self, message, sender: str=None):
         """ Process a message from worker. """
 			
         action = message.get('action')
         if action == 'pong':  						# custom message handling
             pass
         else:										# default message handlers
-            super().process_message(message)
+            super().process_message(message, sender)
 ```
 
 ### App Class Fields and Methods
@@ -351,14 +351,14 @@ class Example_Worker(Worker):
 			
         self.send_message('pong')	         # send message (str or dict) to app
 
-    def process_message(self, message):
+    def process_message(self, message, sender: str=None):
         """ Process a message from app. """
 			
         action = message.get('action')
         if action == 'ping':  				 # custom message handling
             self.send_message('pong')
         else:								 # default message handlers
-            super().process_message(message)
+            super().process_message(message, sender)
 ```
 
 ### Worker Class Fields and Methods
@@ -428,6 +428,8 @@ debug(message, filename: str=None)                      # converts to str(messag
 read(filename: str=None) -> list
 get_modification_date(filename: str=None)
 get_filename() -> str
+parse(record: str) -> dict
+    # parses log string to {'dt', 'class', 'function', 'level', 'message'}
 ```
 
 ### Color

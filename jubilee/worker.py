@@ -150,14 +150,14 @@ class Worker:
 		while True:
 			try:
 				message = self.app_queue.get_nowait()
-				self.process_message(json.loads(message))
+				self.process_message(json.loads(message), sender='App')
 			except queue.Empty:
 				return
 			except Exception as e:
 				Log.error(e)
 				continue
 
-	def process_message(self, message: dict):
+	def process_message(self, message: dict, sender: str=None):
 		""" Process a message from app. This method can be extended in subclass. """
 
 		action = message.get('action')

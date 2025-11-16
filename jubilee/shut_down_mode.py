@@ -28,9 +28,11 @@ class ShutDownMode(Mode):
 	def draw(self):
 		""" Shut Down mode draw method. """
 
-		self.app.fill_screen('black')
-		self.app.center_text('Confirm Shutdown', self.app.screen_middle - 30)
-		self.app.center_text('Hold to confirm')
+		try:
+			self.app.center_text('Confirm Shutdown', self.app.screen_middle - 30)
+			self.app.center_text('Hold to confirm')
+		except Exception as e:
+			Log.error(e)
 
 	def cancel_shutdown(self):
 		""" Cancel shutdown and return to previous mode. """
