@@ -1,6 +1,6 @@
 """ Misc classes and functions. """
 
-import datetime, json, os, shutil, socket, time
+import datetime, inspect, json, logging, os, shutil, socket, time
 from enum import Enum
 from hashlib import sha256
 import __main__, random_user_agent.params, random_user_agent.user_agent, requests
@@ -24,13 +24,13 @@ class Config:
 		try:
 			filename = filename or cls.get_filename()
 			if os.path.isfile(filename) is False:
-				Log.info('Config', 'load', f'{filename} does not exist - using defaults')
+				Log.info(f'{filename} does not exist - using defaults')
 			else:
 				with open(filename, 'rt', encoding='UTF-8') as f:
 					config = json.loads(f.read().strip())
 					return_dict.update(config)
 		except Exception as e:
-			Log.error('Config', 'load', str(e))
+			Log.error(str(e))
 		return return_dict
 
 	@classmethod
@@ -57,109 +57,216 @@ class Config:
 		return os.path.join(folder, 'config.txt')
 
 class Log:
-	""" Log class. """
+	""" Log class using Python logging module. """
 
-	levels = ['Error', 'Warning', 'Info', 'Debug']
-	file_levels = {}					# all log files default to Info if not indicated here
-	console_level = 'Warning'
+	ERROR = logging.ERROR
+	WARNING = logging.WARNING
+	INFO = logging.INFO
+	DEBUG = logging.DEBUG
+
+	loggers = {}
+	file_handlers = {}
+	console_handler = None
+	file_levels = {}
+	console_level = logging.WARNING
+
+	formatter = logging.Formatter(
+		'%(asctime)s %(class_name)-22s %(function_name)-15s %(levelname)-7s %(message)s',
+		datefmt='%Y%m%d %H:%M:%S'
+	)
+
+	@classmethod
+	def get_logger(cls, filename: str=None) -> logging.Logger:
+		""" Gets or creates a logger for the specified file. """
+
+		filename = filename or cls.get_filename()
+		if filename in cls.loggers:
+			return cls.loggers[filename]
+
+		# create logger
+		logger = logging.getLogger(filename)
+		logger.setLevel(cls.DEBUG)		# catch all errors, but filter for output
+		logger.propagate = False
+		file_handler = logging.FileHandler(filename, mode='a', encoding='UTF-8')
+		file_handler.setLevel(cls.file_levels.get(filename, cls.INFO))
+		file_handler.setFormatter(cls.formatter)
+		logger.addHandler(file_handler)
+		cls.loggers[filename] = logger
+		cls.file_handlers[filename] = file_handler
+
+		# create console handler if it does not yet exist
+		if cls.console_handler is None:
+			cls.console_handler = logging.StreamHandler()
+			cls.console_handler.setFormatter(cls.formatter)
+		cls.console_handler.setLevel(cls.console_level)
+		logger.addHandler(cls.console_handler)
+
+		return cls.loggers[filename]
+
+	@classmethod
+	def get_caller_info(cls, stack_depth: int=3) -> (str|None, str|None):
+		""" Extracts caller class and function names from stack.
+
+		Args:
+			stack_depth:				Number of frames to go back in the stack
+
+		Returns:
+			param1:							Class name.
+			param2:							Function name.
+		"""
+		frame = inspect.currentframe()
+		try:
+			for _ in range(stack_depth):
+				if frame is not None:
+					frame = frame.f_back
+			if frame is not None:
+				function_name = frame.f_code.co_name
+				class_name = ''
+				if 'self' in frame.f_locals:
+					class_name = frame.f_locals['self'].__class__.__name__
+				elif 'cls' in frame.f_locals:
+					class_name = frame.f_locals['cls'].__name__
+				# check if this is a static method of a class
+				elif 'self' not in frame.f_locals and 'cls' not in frame.f_locals:
+					# infer from module and qualname
+					if hasattr(frame.f_code, 'co_qualname'):
+						qualname = frame.f_code.co_qualname
+						if '.' in qualname:
+							class_name = qualname.split('.')[0]
+				# if still no class name, use module name
+				if not class_name:
+					module = inspect.getmodule(frame)
+					if module:
+						class_name = module.__name__.split('.')[-1]
+					else:
+						class_name = None
+				return class_name, function_name
+		finally:
+			del frame
+
+		return None, None
 
 	@classmethod
 	def reset(cls, filename: str=None):
 		""" Resets log at specified filename or default filename (log.txt). """
 
 		filename = filename or cls.get_filename()
+		if filename in cls.loggers:
+			logger = cls.loggers[filename]
+			if filename in cls.file_handlers:
+				handler = cls.file_handlers[filename]
+				handler.close()
+				logger.removeHandler(handler)
+				del cls.file_handlers[filename]
+			del cls.loggers[filename]
 		if os.path.isfile(filename):
 			os.unlink(filename)
-		Log.info('Log', 'reset', 'Starting new log')
+		cls.info('Starting new log', filename=filename)
 
 	@classmethod
-	def backup(cls, filename: str=None, backup_folder: str=None) -> bool:
+	def backup(cls, filename: str=None, backup_filename: str=None, backup_folder: str=None) -> bool:
 		""" Saves current log in backup folder.
 
-				Args:
-					filename:				Filename, or default filename (config.txt).
-					backup_folder:	Folder for backups, or "logs" folder in same folder as log.
+		Args:
+			filename: 				Filename, or default filename (log.txt).
+			backup_filename:  Filename of backup file, or default log_(YYYYmmdd_HHMMSS).txt.
+			backup_folder: 		Folder for backups, or "logs" folder in same folder as log.
 
-				Returns:
-					arg:						Success indicator.
+		Returns:
+			param1:						Success indicator.
 		"""
 
 		try:
 			filename = filename or cls.get_filename()
-			if os.path.isfile(filename) is False:		# no log to backup
+			if not os.path.isfile(filename):  # no log to backup
 				return True
+
 			backup_folder = backup_folder or os.path.join(os.path.dirname(filename), 'logs')
-			if os.path.isdir(backup_folder) is False:
-				os.mkdir(backup_folder)
-				if os.path.isdir(backup_folder) is False:
-					Log.warning('Log', 'backup', f'{backup_folder} does not exist and could not be created')
+			if not os.path.isdir(backup_folder):
+				os.makedirs(backup_folder, exist_ok=True)
+				if not os.path.isdir(backup_folder):
+					cls.warning(f'{backup_folder} does not exist and could not be created')
 					return False
-			current_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S.%f')
-			backup_filename = os.path.join(backup_folder, f'log_{current_time}.txt')
+			if filename in cls.file_handlers:
+				handler = cls.file_handlers[filename]
+				handler.close()
+				cls.loggers[filename].removeHandler(handler)
+				del cls.file_handlers[filename]
+				del cls.loggers[filename]
+
+			if backup_filename is None:
+				current_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S.%f')
+				backup_filename = f'log_{current_time}.txt'
+			backup_filename = os.path.join(backup_folder, backup_filename)
 			shutil.move(filename, backup_filename)
-			Log.info('Log', 'backup', f'Backed up previous log ({backup_filename}) and starting new log')
+
+			cls.info(f'Backed up previous log ({backup_filename}) and starting new log')
 			return True
 
 		except Exception as e:
-			Log.error('Log', 'backup', str(e))
+			cls.error(str(e))
 			return False
 
 	@classmethod
-	def _write(cls, class_name: str, function_name: str, level: str, message: str, filename: str=None):
-		""" Writes (appends) to log at specified filename. Called by following methods.
+	def set_file_level(cls, level: int, filename: str=None):
+		""" Set the logging level for a specific file. """
 
-				Args:
-					class_name:			Class name.
-					function_name:	Function name.
-					level:					Error, Warning, Info, or Debug.
-					message:				Log message.
-					filename:				Log filename or default filename (log.txt).
-		"""
-
-		d = datetime.datetime.now()
-		log_message = f'{d:%Y%m%d %H:%M:%S} {class_name:<15} {function_name:<20} {level:<7} {message}'
 		filename = filename or cls.get_filename()
-		file_level = cls.levels.index(cls.file_levels.get(filename, 'Info'))
-		if cls.levels.index(level) <= file_level:
-			with open(filename, 'at', encoding='UTF-8') as f:
-				f.write(f'{log_message}\n')
-		console_level = cls.levels.index(cls.console_level)
-		if cls.levels.index(level) <= console_level:
-			print(log_message)
+		cls.file_levels[filename] = level
+		if filename in cls.file_handlers:
+			cls.file_handlers[filename].setLevel(level)
 
 	@classmethod
-	def error(cls, class_name: str, function_name: str, message: str, filename: str=None):
+	def set_console_level(cls, level: int):
+		""" Set the console logging level. """
+
+		cls.console_level = level
+		if cls.console_handler is not None:
+			cls.console_handler.setLevel(level)
+
+	@classmethod
+	def error(cls, message, filename: str=None):
 		""" Writes error message to log. """
 
-		Log._write(class_name, function_name, 'Error', message, filename)
+		class_name, function_name = cls.get_caller_info()
+		logger = cls.get_logger(filename)
+		logger.error(str(message), extra={'class_name': class_name, 'function_name': function_name})
 
 	@classmethod
-	def warning(cls, class_name: str, function_name: str, message: str, filename: str=None):
+	def warning(cls, message, filename: str=None):
 		""" Writes warning message to log. """
 
-		Log._write(class_name, function_name, 'Warning', message, filename)
+		class_name, function_name = cls.get_caller_info()
+		logger = cls.get_logger(filename)
+		logger.warning(str(message), extra={'class_name': class_name, 'function_name': function_name})
 
 	@classmethod
-	def info(cls, class_name: str, function_name: str, message: str, filename: str=None):
+	def info(cls, message, filename: str=None):
 		""" Writes info message to log. """
 
-		Log._write(class_name, function_name, 'Info', message, filename)
+		class_name, function_name = cls.get_caller_info()
+		logger = cls.get_logger(filename)
+		logger.info(str(message), extra={'class_name': class_name, 'function_name': function_name})
 
 	@classmethod
-	def debug(cls, class_name: str, function_name: str, message: str, filename: str=None):
+	def debug(cls, message, filename: str=None):
 		""" Writes debug message to log. """
+		class_name, function_name = cls.get_caller_info()
 
-		Log._write(class_name, function_name, 'Debug', message, filename)
+		logger = cls.get_logger(filename)
+		logger.debug(str(message), extra={'class_name': class_name, 'function_name': function_name})
 
 	@classmethod
-	def read(cls, filename: str=None):
+	def read(cls, filename: str=None) -> list:
 		""" Read log at specified filename. """
 
 		filename = filename or cls.get_filename()
-		if os.path.isfile(filename) is False:
+		if not os.path.isfile(filename):
 			return []
+		if filename in cls.file_handlers:
+			cls.file_handlers[filename].flush()
 		with open(filename, 'rt', encoding='UTF-8') as f:
-			log_lines = list(line.strip() for line in f.readlines())
+			log_lines = [line.strip() for line in f.readlines()]
 		return log_lines
 
 	@classmethod
@@ -167,7 +274,7 @@ class Log:
 		""" Get file modification date of specified filename. """
 
 		filename = filename or cls.get_filename()
-		return None if os.path.isfile(filename) is False else os.path.getmtime(filename)
+		return None if not os.path.isfile(filename) else os.path.getmtime(filename)
 
 	@staticmethod
 	def get_filename() -> str:
@@ -175,7 +282,7 @@ class Log:
 
 		if hasattr(__main__, '__file__'):
 			folder = os.path.dirname(os.path.realpath(__main__.__file__))
-		else:		# the above instruction fails for spawned processes with no file.
+		else:		 	# the above instruction fails for spawned processes with no file
 			folder = os.getcwd()
 		return os.path.join(folder, 'log.txt')
 
@@ -328,8 +435,14 @@ class Misc:
 		start = time.time()
 		status_code, response = cls.http_request('https://google.com')
 		success = (status_code == 200)
-		response = time.time() if status_code == 200 else response
+		response = (time.time() - start) if status_code == 200 else response
 		return (success, response)
+
+	@staticmethod
+	def get_hostname() -> str:
+		""" Returns local hostname. """
+
+		return socket.gethostname()
 
 	@staticmethod
 	def get_color(color: str|int|tuple, color_scale: float=None) -> tuple|None:

@@ -35,7 +35,7 @@ class Sprite:
 		""" Sets an animation sequence, optionally with an animation rate. """
 
 		if self.animation is None or sequence_name not in self.animation.sequences:
-			Log.error('Sprite', 'set_sequence', f'No sequence named {sequence_name} in animation')
+			Log.error(f'No sequence named {sequence_name} in animation')
 			self.sequence = None
 			return False
 		self.sequence = sequence_name
@@ -70,17 +70,17 @@ class Sprite:
 
 		sequence = self.animation.sequences.get(self.sequence)
 		if sequence is None:
-			Log.error('Sprite', 'animate', f'No sequence named {self.sequence}')
+			Log.error(f'No sequence named {self.sequence}')
 			return
 		if len(sequence) == 0:
-			Log.error('Sprite', 'animate', f'Sequence {self.sequence} has no frames')
+			Log.error(f'Sequence {self.sequence} has no frames')
 			return
 		if frame_number is not None:
 			self.frame_number = frame_number
 		else:
 			self.frame_number = 0 if self.frame_number is None else (self.frame_number + 1) % len(sequence)
 		if self.frame_number is None or self.frame_number < 0 or self.frame_number >= len(sequence) or sequence[self.frame_number] >= len(self.animation.frames):
-			Log.error('Sprite', 'animate', f'Invalid frame number {self.frame_number} for sprite {self.animation} and sequence {self.sequence}')
+			Log.error(f'Invalid frame number {self.frame_number} for sprite {self.animation} and sequence {self.sequence}')
 			return
 		self.set_size()
 

@@ -5,7 +5,6 @@ try:
 	import psutil
 except:
 	psutil = None
-from pygame.font import Font
 from .mode import Mode
 from .controls import Button
 from .misc import Log
@@ -13,26 +12,25 @@ from .misc import Log
 class LogMode(Mode):
 	""" Log mode class. """
 
-	def __init__(self, max_log_size: int=100, button_font: str|Font=None, return_mode: str|Mode=None, return_mode_parameters: dict=None):
-		super().__init__()
+	def __init__(self, background_color: str='black'):
+		self.name = 'Log'
 		self.log_date = None
 		self.log_text = []
 		self.log_line_height = 13
 		self.log_lines_per_page = 10
 		self.log_page = 0
-		self.max_log_size = max_log_size
-		self.button_font = button_font
-		self.return_mode = return_mode
-		self.return_mode_parameters = return_mode_parameters
+		self.max_log_size = 100
+		self.button_font = None
+		self.return_mode = None
+		self.return_mode_parameters = None
 		self.back_button = None
 		self.last_process = None
 		self.cpu_load = []
 		self.cpu_temp = []
+		super().__init__(background_color=background_color)
 
 	def init(self):
-		""" Shut Down mode initializer. """
-
-		self.name = 'Log'
+		""" LogMode initializer. """
 
 		# add page size from app
 		self.log_lines_per_page = int((self.app.screen_height - 180) / self.log_line_height)
@@ -72,7 +70,7 @@ class LogMode(Mode):
 
 		mode = self.back_button.target_mode or self.return_mode
 		if mode is None:
-			Log.error('LogMode', 'back_click', 'No mode to switch back to')
+			Log.error('No mode to switch back to')
 		else:
 			self.app.set_mode(mode, mode_parameters=self.return_mode_parameters)
 
@@ -144,7 +142,7 @@ class LogMode(Mode):
 
 		# check page_down and ensure that it has not gone past end of log
 		if self.log_lines_per_page < 1:
-			Log.debug('LogMode', 'draw', f'log_lines_per_page = {self.log_lines_per_page}')
+			Log.debug(f'log_lines_per_page = {self.log_lines_per_page}')
 			return
 		num_pages = math.ceil(len(self.log_text) / self.log_lines_per_page)
 		self.log_page = max(0, min(self.log_page, num_pages - 1))

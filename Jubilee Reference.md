@@ -1,26 +1,32 @@
 # Jubilee Reference
 
-- [App Class Reference](#app-class-reference)
-  - [Example App](#example-app)
-  - [App Class Fields and Methods](#app-class-fields-and-methods)
-  - [Drawing](#drawing)
-  - [Surfaces and Images](#surfaces-and-images)
-  - [Sound](#sound)
-  - [Music](#music)
-  - [Pointer (Touch or Mouse) Input](#pointer-touch-or-mouse-input)
-  - [Keyboard Input](#keyboard-input)
-  - [App State](#app-state)
-  - [Scripting](#scripting)
-  - [Fonts](#fonts)
-- [Mode Class Reference](#mode-class-reference)
-  - [Example Mode](#example-mode)
-  - [Mode Class Fields and Methods](#mode-class-fields-and-methods)
-  - [Controls](#controls)
-  - [Submodes](#submodes)
-- [Worker Class Reference](#worker-class-reference)
-  - [Example Worker](#example-worker)
-  - [Worker Class Fields and Methods](#worker-class-fields-and-methods)
-- [config.txt](#config-txt)
+- [Jubilee Reference](#jubilee-reference)
+  - [App Class Reference](#app-class-reference)
+    - [Example App](#example-app)
+    - [App Class Fields and Methods](#app-class-fields-and-methods)
+    - [Drawing](#drawing)
+    - [Surfaces and Images](#surfaces-and-images)
+    - [Sound](#sound)
+    - [Music](#music)
+    - [Pointer (Touch or Mouse) Input](#pointer-touch-or-mouse-input)
+    - [Keyboard Input](#keyboard-input)
+    - [App State](#app-state)
+    - [Scripting](#scripting)
+    - [Fonts](#fonts)
+  - [Mode Class Reference](#mode-class-reference)
+    - [Example Mode](#example-mode)
+    - [Mode Class Fields and Methods](#mode-class-fields-and-methods)
+    - [Controls](#controls)
+    - [Submodes](#submodes)
+  - [Worker Class Reference](#worker-class-reference)
+    - [Example Worker](#example-worker)
+    - [Worker Class Fields and Methods](#worker-class-fields-and-methods)
+  - [config.txt](#config-txt)
+  - [misc.py Reference](#misc-py-reference)
+    - [Config](#config)
+    - [Log](#log)
+    - [Color](#color)
+    - [Misc](#misc)
 
 ## App Class Reference
 
@@ -200,7 +206,7 @@ advance_scene(delta=1)              # advance scene number relative to current s
 ### Fonts
 
 ```
-create_font(name='Arial', size=12)	# create font
+create_font(name='Arial', size=12)	# create font from system name or path
 fonts = {'freeserif': ... }         # array of fonts by name in default size
 standard_font: Font					# standard (default) Font object
 standard_font_name: str				# name of standard font
@@ -361,6 +367,7 @@ class Example_Worker(Worker):
 name: str									 # worker name
 config: dict								 # config
 config_manager: bool						 # whether this worker manages the config
+log_manager: bool						     # whether this worker manages the log
 init()                                       # stub method for pre-start initialization
 start_worker()                               # stub method for post-start initialization
 process()                                    # stub method for high-frequency processing
@@ -389,6 +396,64 @@ This file contains high-level Jubilee application configuration features. App lo
 "persist_app_state": true					 # automatically save/load app_state
 "app_state_filename": "app_state.txt"		 # file to store app_state dict
 "app_state_start_filename": "app_state_start.txt"  # file to store initial app_state dict
+"rotate_log": "daily"                        # log rotation: monthly, daily, hourly
 "font": "freeserif"	    					 # default font name
 "font_size": 14								 # standard size (overridden as 15 on macOS)
 ```
+
+## misc.py Reference
+
+The following classes and functions are available in jubilee.misc:
+
+### Config
+Operations default to get_filename() filename, which is usually `config.txt`.
+```
+load(filename: str=None, defaults: dict=None) -> dict  # combines file data and defaults
+save(config: dict=None, filename: str=None)
+get_filename() -> str
+```
+
+### Log
+Operations default to get_filename() filename, which is usually `log.txt`. The first worker usually rotates the log during process_periodic at a frequency defined in `config.txt`.
+```
+ERROR, WARNING, INFO, DEBUG                             # const levels
+reset(filename: str=None)
+backup(filename: str=None, backup_folder: str=None)     # defaults='log_{time}', '.logs/'
+set_file_level(level, filename: str=None)               # specify const level
+set_console_level(level, filename: str=None)            # specify const level
+error(message, filename: str=None)                      # converts to str(message)
+warning(message, filename: str=None)                    # converts to str(message)
+info(message, filename: str=None)                       # converts to str(message)
+debug(message, filename: str=None)                      # converts to str(message)
+read(filename: str=None) -> list
+get_modification_date(filename: str=None)
+get_filename() -> str
+```
+
+### Color
+
+This enum maps color constants to tuples (e.g.: Color.BLACK.value = (0, 0, 0)).
+
+### Misc
+
+Random common functionality.
+
+```
+key_names                                   # from pygame: ('backspace', 'tab', etc.)
+key_symbols: dict                           # unshifted typable key symbols
+key_shift_symbols: dict                     # {'a': 'A', ...}
+null_date = datetime.utcfromtimestamp(0)    # date represented by 0
+user_agent                                  # user_agent selected for this session
+choose_user_agent()                         # chooses a popular user_agent
+calculate_hashcode(data: dict) -> str       # sha256 hash for json.dumps(data)
+http_request(url: str, method: str=None, headers: dict=None,
+    data: dict=None, password: str=None, timeout: int=30,
+    randomize_user_agent: bool=False, timestamp: str=None) -> (int|None, str)
+        # if data=dict, uses HTTP POST and json.dumps(data); otherwise, GET by default
+sign_request(url, password, timestamp: int=None) -> (bool, str)
+        # calculates a URL with "&hash={sha256 hashcode}" appended
+get_local_ip_address() -> (bool, str)       # success, result or error message
+test_internet() -> (bool, float|str)        # success, latency or error message
+get_hostname() -> str                       # get local hostname
+get_color(color: str|int|tuple, color_scale: float=None) -> tuple|None
+        # color=string (case-insensitive), Color.enum, or tuple; can scale by 0.0-1.0

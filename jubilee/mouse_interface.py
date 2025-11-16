@@ -19,5 +19,5 @@ class MouseInterface(PointerInterface):
 			self.down = False
 			self.x = None; self.y = None
 			return False
-		Log.warning('MouseInterface', 'handle_events', f'Could not handle event of type {event.type}')
+		Log.warning(f'Could not handle event of type {event.type}')
 		return False

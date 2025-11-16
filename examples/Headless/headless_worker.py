@@ -11,14 +11,14 @@ class HeadlessWorker(Worker):
 		""" HeadlessWorker initializer. """
 		
 		self.name = f'Worker {int(time.time()) % 100}'
-		Log.console_level = 'Info'
+		Log.set_console_level(Log.INFO)
 
 	def process_message(self, message):
 		""" Process a message from app. """
 
 		action = message.get('action', None)
 		if action == 'ping':
-			Log.info('HeadlessWorker', 'process_message', f'Returned ping {message["id"]}')
+			Log.info(f'Returned ping {message["id"]}')
 			message['action'] = 'pong'
 			message['worker'] = self.name
 			self.send_message(message)

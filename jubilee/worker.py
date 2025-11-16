@@ -1,6 +1,6 @@
 """ Jubilee Worker class. """
 
-import json, multiprocessing, os, queue, sys, time
+import datetime, json, multiprocessing, os, queue, sys, time
 import __main__
 from .misc import Config, Log
 
@@ -13,18 +13,20 @@ class Worker:
 		'worker_process_fps': 20, 'worker_process_periodic_fps': 1,
 		'persist_app_state': True, 'app_state_filename': 'app_state.txt',
 		'app_state_start_filename': 'app_state_start.txt',
-		'font_size': 14}
+		'keyboard_input': True, 'log_rotation': 'daily', 'font_size': 14}
 
-	def __init__(self, app_queue, worker_queue, config_manager=False):
+	def __init__(self, app_queue, worker_queue, config_manager=False, log_manager=False):
 		self.name = 'Worker'
 		self.app_queue = app_queue
 		self.worker_queue = worker_queue
 		self.config_manager = config_manager
+		self.log_manager = log_manager
 		self.worker_process = None
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
 		self.config_filename = os.path.join(self.base_path, 'config.txt')
 		self.config = Config.load(self.config_filename, defaults=self.config_defaults)
 		self.config_date = None
+		self.log_date = None
 		if os.path.isfile(self.config_filename) is True:
 			self.config_date = os.path.getmtime(self.config_filename)
 		self.last_periodic = None
@@ -49,7 +51,7 @@ class Worker:
 		""" Worker run loop. """
 
 		try:
-			Log.info('Worker', 'run', 'Starting')
+			Log.info('Starting')
 			self.start_worker()
 
 			while True:
@@ -67,6 +69,8 @@ class Worker:
 						self.last_periodic = (self.last_periodic or time.monotonic()) + 1.0 / process_periodic_fps
 						if self.config_manager is True:
 							self.manage_config()
+						if self.log_manager is True:
+							self.manage_log()
 						self.process_periodic()
 
 				# delay to next loop
@@ -76,10 +80,10 @@ class Worker:
 					time.sleep(delay)
 
 		except Exception as e:
-			Log.error('Worker', 'run', str(e))
+			Log.error(e)
 
 	def manage_config(self):
-		""" Config process manager. """
+		""" Config manager. """
 
 		if self.config_manager is False:
 			return
@@ -88,10 +92,36 @@ class Worker:
 			return
 		config_date = os.path.getmtime(self.config_filename)
 		if config_date != self.config_date:
-			Log.info('Worker', 'manage_config', f'Loading config ({self.config_date} != {config_date})')
+			Log.info(f'Loading config ({self.config_date} != {config_date})')
 			self.config_date = config_date
 			self.config = Config.load(self.config_filename, defaults=self.config_defaults)
 			self.send_updated_config()
+
+	def manage_log(self):
+		""" Log manager. """
+
+		if self.log_manager is False:
+			return
+		if os.path.isfile(Log.get_filename()) is False:
+			self.log_date = None
+			return
+		self.log_date = self.log_date or datetime.datetime.now()
+		rotation = self.config.get('log_rotation', 'daily')
+		rotate = False
+		log_format = None
+		if rotation == 'daily':
+			rotate = (datetime.datetime.now().strftime('%Y%m%d') != self.log_date.strftime('%Y%m%d'))
+			log_format = '%Y%m%d'
+		if rotation == 'monthly':
+			rotate = (datetime.datetime.now().strftime('%Y%m') != self.log_date.strftime('%Y%m'))
+			log_format = '%Y%m'
+		if rotation == 'hourly':
+			rotate = (datetime.datetime.now().strftime('%Y%m') != self.log_date.strftime('%Y%m'))
+			log_format = '%Y%m%d%H'
+		if rotate is True:
+			filename = f'log_{datetime.datetime.now().strftime(log_format)}.txt'
+			Log.backup(backup_filename=filename)
+			self.log_date = datetime.datetime.now()
 
 	def process(self):
 		""" Regular (high-frequency) worker processing. """
@@ -112,7 +142,7 @@ class Worker:
 		try:
 			self.worker_queue.put(json.dumps(message, ensure_ascii=True))
 		except Exception as e:
-			Log.error('Worker', 'send_message', f'Failed to send message: {e}')
+			Log.error(f'Failed to send message: {e}')
 
 	def receive_messages(self):
 		""" Receive messages from app. """
@@ -124,7 +154,7 @@ class Worker:
 			except queue.Empty:
 				return
 			except Exception as e:
-				Log.error('Worker', 'receive_messages', str(e))
+				Log.error(e)
 				continue
 
 	def process_message(self, message: dict):
@@ -140,7 +170,7 @@ class Worker:
 		elif action == 'exit':
 			self.exit()
 		else:
-			Log.warning('Worker', 'process_message', f'Received unknown message: {message}')
+			Log.warning(f'Received unknown message: {message}')
 
 	def update_config(self, key, value):
 		self.config[key] = value

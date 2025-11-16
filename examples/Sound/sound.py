@@ -1,8 +1,8 @@
 """ Sound Jubilee app. Demonstrates sound and music. """
 
 import os, sys
-from jubilee import App
-from jubilee.base_classes import Button, Mode
+from jubilee import App, Mode
+from jubilee.controls import Button
 
 class SoundApp(App):
 	""" Sound app. """

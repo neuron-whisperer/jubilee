@@ -89,7 +89,7 @@ class LabeledControl(Control):
 			try:
 				offset, label_height = self.app.get_text_size(self.caption, font=self.label_font)
 			except Exception as e:
-				Log.error('LabeledControl', 'set_layout', f'get_text_size failed: {e}')
+				Log.error(f'get_text_size failed: {e}')
 				return
 		self.control.x = self.x + offset
 		self.width = offset + self.control.width
@@ -129,7 +129,7 @@ class LabeledControl(Control):
 			self.app.draw_text(self.caption, self.x, y, color=self.color, font=self.label_font, alignment='left')
 			self.control.draw()
 		except Exception as e:
-			Log.error('LabeledControl', 'draw', str(e))
+			Log.error(e)
 
 class Button(Control):
 	""" Button user control. """
@@ -175,7 +175,7 @@ class Button(Control):
 			y = int(self.y + self.height / 2)
 			self.app.draw_text(self.caption, x, y, color = self.color, font = self.font, alignment = 'center')
 		except Exception as e:
-			Log.error('Button', 'draw', str(e))
+			Log.error(e)
 
 class HoldButton(Button):
 	""" Hold button user control that calls .click() after a hold period.
@@ -237,7 +237,7 @@ class HoldButton(Button):
 			y = int(self.y + self.height / 2)
 			self.app.draw_text(self.caption, x, y, color = self.color, font = self.font, alignment = 'center')
 		except Exception as e:
-			Log.error('HoldButton', 'draw', str(e))
+			Log.error(e)
 
 class CheckButton(Control):
 	""" Check button user control that toggles self.checked. """
@@ -287,7 +287,7 @@ class CheckButton(Control):
 				self.app.draw_line(x1, y1, x2, y2, width=self.check_width, color=self.check_color)
 				self.app.draw_line(x1, y2, x2, y1, width=self.check_width, color=self.check_color)
 		except Exception as e:
-			Log.error('CheckButton', 'draw', str(e))
+			Log.error(e)
 
 class ToggleButton(Control):
 	""" Toggle button user control that toggles self.toggled. """
@@ -330,7 +330,7 @@ class ToggleButton(Control):
 				self.app.fill_rect(self.x + 2, self.y + 2, self.width - 4, self.height - 4, color=color)
 			self.app.draw_rect(self.x, self.y, self.width, self.height, line_width=self.app.button_border, color=self.color)
 		except Exception as e:
-			Log.error('ToggleButton', 'draw', str(e))
+			Log.error(e)
 
 class SelectButton(Control):
 	""" Select button control that cycles through a list of items.
@@ -361,7 +361,7 @@ class SelectButton(Control):
 		self.name = self.name or 'SelectButton'
 
 		if self.values is not None and len(self.items) != len(self.values):
-			Log.error('SelectButton', '__init__', f'len(self.items) ({len(self.items)}) != len(self.values) ({len(self.values)})')
+			Log.error(f'len(self.items) ({len(self.items)}) != len(self.values) ({len(self.values)})')
 			return
 		self.set_selected_index(selected_index)
 
@@ -377,7 +377,7 @@ class SelectButton(Control):
 			self.selected_index = self.items.index(self.selected_item)
 		self.values = values if values is not None else self.values
 		if self.values is not None and len(self.items) != len(self.values):
-			Log.error('SelectButton', '__init__', f'len(self.items) ({len(self.items)}) != len(self.values) ({len(self.values)})')
+			Log.error(f'len(self.items) ({len(self.items)}) != len(self.values) ({len(self.values)})')
 			self.selected_index = None
 			self.selected_item = None
 			self.value = None
@@ -396,7 +396,7 @@ class SelectButton(Control):
 				if the selection changes. """
 
 		if item not in self.items:
-			Log.error('SelectButton', 'set_selected_item', f'Item not in items: {item}')
+			Log.error(f'Item not in items: {item}')
 			return
 		index = self.items.index(item)
 		self.set_selected_index(index, do_click=do_click)
@@ -411,10 +411,10 @@ class SelectButton(Control):
 			self.value = None
 			return
 		if len(self.items) == 0:
-			Log.error('SelectButton', 'set_selected_index', 'No items to select')
+			Log.error('No items to select')
 			return
 		if index < 0 or index >= len(self.items):
-			Log.error('SelectButton', 'set_selected_index', f'Index out of range: {index}')
+			Log.error(f'Index out of range: {index}')
 			return
 		if self.selected_index == index:
 			return
@@ -442,4 +442,4 @@ class SelectButton(Control):
 			cy = int(self.y + self.height / 2)
 			self.app.draw_text(label, cx, cy, color=self.color, font=self.font, alignment='center')
 		except Exception as e:
-			Log.error('SelectButton', 'draw', str(e))
+			Log.error(e)

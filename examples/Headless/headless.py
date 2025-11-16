@@ -9,7 +9,7 @@ class HeadlessApp(App):
 	""" Headless app. """
 
 	def init(self):
-		Log.console_level = 'Info'
+		Log.set_console_level(Log.INFO)
 		self.add_workers([HeadlessWorker, HeadlessWorker])
 		self.add_mode(HeadlessMode)
 		self.pings = {}
@@ -22,10 +22,10 @@ class HeadlessApp(App):
 			ping_id = message.get('id')
 			worker = message.get('worker')
 			if ping_id not in self.pings:
-				Log.error('HeadlessApp', 'process_message', f'Ping ID {ping_id} not pings')
+				Log.error(f'Ping ID {ping_id} not pings')
 			else:
 				self.pings[ping_id] = True
-				Log.info('HeadlessApp', 'process_message', f'Received pong: {ping_id} from {worker}')
+				Log.info(f'Received pong: {ping_id} from {worker}')
 		else:
 			super().process_message(message)
 
@@ -45,7 +45,7 @@ class HeadlessMode(Mode):
 			ping_id = len(self.app.pings)
 			ping_message = {'action': 'ping', 'id': ping_id}
 			self.app.send_message(ping_message, worker)
-			Log.info('HeadlessMode', 'process', f'Sent ping {ping_id}')
+			Log.info(f'Sent ping {ping_id}')
 			self.app.pings[ping_id] = False
 		except Exception as e:
 			print(e)

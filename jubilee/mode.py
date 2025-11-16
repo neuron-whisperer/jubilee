@@ -57,7 +57,7 @@ class Mode:
 		try:
 			self.enter(mode_parameters=mode_parameters)
 		except Exception as e:
-			Log.error('Mode', 'on_enter', str(e))
+			Log.error(e)
 
 	def enter(self, mode_parameters: dict=None):
 		""" Mode enter method. """
@@ -70,13 +70,13 @@ class Mode:
 			try:
 				getattr(self, f'exit_{self.submode}')()
 			except Exception as e:
-				Log.error('Mode', 'set_submode', f'Exception exiting submode {self.submode}: {e}')
+				Log.error(f'Exception exiting submode {self.submode}: {e}')
 		self.submode = None
 		self.submode_timer = None
 
 		if name not in self.submodes:
 			if name is not None:
-				Log.error('Mode', 'set_submode', f'No known submode {name}')
+				Log.error(f'No known submode {name}')
 			return
 
 		self.submode = name
@@ -85,7 +85,7 @@ class Mode:
 			try:
 				getattr(self, f'enter_{name}')(mode_parameters)
 			except Exception as e:
-				Log.error('Mode', 'set_submode', f'Exception entering submode {self.submode}: {e}')
+				Log.error(f'Exception entering submode {self.submode}: {e}')
 
 	def add_control(self, control) -> Control:
 		""" Add control to mode. """
@@ -103,12 +103,12 @@ class Mode:
 				for b in matching_controls:
 					self.controls.remove(b)
 			else:
-				Log.error('Mode', 'remove_control', f'No control with caption {control} in mode')
+				Log.error(f'No control with caption {control} in mode')
 		else:
 			if control in self.controls:
 				self.controls.remove(control)
 			else:
-				Log.error('Mode', 'remove_control', f'Control {control} is not in mode.controls')
+				Log.error(f'Control {control} is not in mode.controls')
 
 	def remove_controls(self):
 		""" Remove all controls from mode. """
@@ -125,7 +125,7 @@ class Mode:
 				try:
 					control.on_click()
 				except Exception as e:
-					Log.error('Mode', 'on_click', f'Exception clicking control {control.name}: {e}')
+					Log.error(f'Exception clicking control {control.name}: {e}')
 				return
 
 		# send to click mode or submode
@@ -133,12 +133,12 @@ class Mode:
 			try:
 				getattr(self, f'click_{self.submode}')(x, y)
 			except Exception as e:
-				Log.error('Mode', 'on_click', f'Exception clicking mode {self.name} submode {self.submode}: {e}')
+				Log.error(f'Exception clicking mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.click(x=x, y=y)
 			except Exception as e:
-				Log.error('Mode', 'on_click', str(e))
+				Log.error(e)
 
 	def click(self, x: int|float, y: int|float):
 		""" Mode click event method. """
@@ -150,12 +150,12 @@ class Mode:
 			try:
 				self.selected_control.on_hold()
 			except Exception as e:
-				Log.error('Mode', 'on_hold', f'Exception holding control {self.selected_control.name}: {e}')
+				Log.error(f'Exception holding control {self.selected_control.name}: {e}')
 		else:
 			try:
 				self.hold()
 			except Exception as e:
-				Log.error('Mode', 'on_hold', str(e))
+				Log.error(e)
 
 	def hold(self):
 		""" Mode hold event method. """
@@ -167,13 +167,13 @@ class Mode:
 			try:
 				self.selected_control.on_release()
 			except Exception as e:
-				Log.error('Mode', 'on_release', f'Exception releasing control {self.selected_control.name}: {e}')
+				Log.error(f'Exception releasing control {self.selected_control.name}: {e}')
 			self.selected_control = None
 		else:
 			try:
 				self.release()
 			except Exception as e:
-				Log.error('Mode', 'on_release', str(e))
+				Log.error(e)
 
 	def release(self):
 		""" Mode release event method. """
@@ -185,12 +185,12 @@ class Mode:
 			try:
 				getattr(self, f'process_{self.submode}')()
 			except Exception as e:
-				Log.error('Mode', 'on_process', f'Exception processing mode {self.name} submode {self.submode}: {e}')
+				Log.error(f'Exception processing mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.process()
 			except Exception as e:
-				Log.error('Mode', 'on_process', str(e))
+				Log.error(e)
 
 	def process(self):
 		""" Mode process method. """
@@ -206,19 +206,19 @@ class Mode:
 				try:
 					getattr(self, f'draw_{self.submode}')()
 				except Exception as e:
-					Log.error('Mode', 'on_draw', f'Exception drawing mode {self.name} submode {self.submode}: {e}')
+					Log.error(f'Exception drawing mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.draw()
 			except Exception as e:
-				Log.error('Mode', 'on_draw', str(e))
+				Log.error(e)
 
 		# draw controls in reverse order, i.e., back-to-front if overlapping
 		for control in reversed(self.controls):
 			try:
 				control.draw()
 			except Exception as e:
-				Log.error('Mode', 'on_draw', f'Exception drawing mode {self.name} control {control.name}: {e}')
+				Log.error(f'Exception drawing mode {self.name} control {control.name}: {e}')
 
 	def draw(self):
 		""" Mode draw method. """
@@ -232,7 +232,7 @@ class Mode:
 		""" Removes sprite. """
 
 		if sprite not in self.sprites:
-			Log.error('Mode', 'remove_sprite', 'Sprite is not in mode.sprites')
+			Log.error('Sprite is not in mode.sprites')
 			return
 		self.sprites.remove(sprite)
 
@@ -260,7 +260,7 @@ class Mode:
 			try:
 				self.selected_control.on_release()
 			except Exception as e:
-				Log.error('Mode', 'on_exit', f'Exception calling on_release() on control {self.selected_control.name}: {e}')
+				Log.error(f'Exception calling on_release() on control {self.selected_control.name}: {e}')
 			self.selected_control = None
 
 		# call exit_submode on current submode if it exists, and set submode to None
@@ -268,11 +268,11 @@ class Mode:
 				try:
 					getattr(self, f'exit_{self.submode}')()
 				except Exception as e:
-					Log.error('Mode', 'exit', f'Exception exiting mode {self.name} submode {self.submode}: {e}')
+					Log.error(f'Exception exiting mode {self.name} submode {self.submode}: {e}')
 		try:
 			self.exit()
 		except Exception as e:
-			Log.error('Mode', 'exit', str(e))
+			Log.error(e)
 
 		self.submode = None
 

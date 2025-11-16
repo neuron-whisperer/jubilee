@@ -24,7 +24,13 @@ class App:
 
 		# start log
 		Log.backup()
-		Log.info('App', '__init__', 'Starting')
+		Log.info('Starting')
+
+		# enable debug output if set
+		if 'debug' in sys.argv:
+			Log.set_file_level(Log.DEBUG)
+		if 'console_debug' in sys.argv:
+			Log.set_console_level(Log.DEBUG)
 
 		# load config
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
@@ -34,12 +40,12 @@ class App:
 		# init pygame
 		self.headless = self.config.get('headless', False)
 		if self.headless is True:
-			Log.info('App', '__init__', 'Running in headless mode')
+			Log.info('Running in headless mode')
 			os.environ['SDL_VIDEODRIVER'] = 'dummy'
 		try:
 			pygame.init()
 		except Exception as e:
-			Log.error('App', '__init__', f'Exception during pygame.init(): {e}')
+			Log.error(f'Exception during pygame.init(): {e}')
 			sys.exit(1)
 
 		self.process_last = 0										# time of last process method
@@ -184,7 +190,7 @@ class App:
 				if delay > 0:
 					time.sleep(delay)
 		except Exception as e:
-			Log.error('App', 'run', str(e))
+			Log.error(e)
 
 	def add_worker(self, worker: type):
 		""" Adds instance of worker class to app. """
@@ -192,9 +198,10 @@ class App:
 		app_queue = multiprocessing.Queue()					# queue to send messages from app
 		worker_queue = multiprocessing.Queue()			# queue to receive messages from worker
 		config_manager = (len(self.workers) == 0)		# first worker manages config
+		log_manager = (len(self.workers) == 0)			# first worker also manages log rotation
 		if len(self.workers) > 0:
 			time.sleep(1)															# delay to allow previous worker to start
-		worker_instance = worker(app_queue, worker_queue, config_manager)
+		worker_instance = worker(app_queue, worker_queue, config_manager, log_manager)
 		self.workers[worker_instance.name] = worker_instance
 
 	def add_workers(self, workers: list):
@@ -244,7 +251,7 @@ class App:
 		# switch to mode
 		new_mode = self.modes.get(mode) if isinstance(mode, str) else mode
 		if new_mode is None:
-			Log.error('App', 'set_mode', f'No known mode named {mode}')
+			Log.error(f'No known mode named {mode}')
 			return
 		self.mode = new_mode
 		self.mode.on_enter(mode_parameters=mode_parameters)
@@ -262,15 +269,15 @@ class App:
 		self.handle_events()
 		report_threshold = 0.2		# report processing if more than 0.2 seconds
 
-		if self.config.get('modal') is True:
-			start = time.monotonic()
+		start = time.monotonic()
+		if self.config.get('modal') is True:			# only process current mdoe
+			if self.mode is None:
+				return
 			self.mode.on_process()
 			duration = time.monotonic() - start
 			if duration > report_threshold:
-				Log.info('App', 'process', f'Processing mode {self.mode.name} took {duration:.3f} s')
-
-		else:
-			start = time.monotonic()
+				Log.info(f'Processing mode {self.mode.name} took {duration:.3f}')
+		else:																			# process all modes
 			mode_times = {}
 			for mode in self.modes.values():
 				mode_start = time.monotonic()
@@ -278,8 +285,8 @@ class App:
 				mode_times[mode.name] = f'{time.monotonic() - mode_start:.3f}'
 			duration = time.monotonic() - start
 			if duration > report_threshold:
-				Log.info('App', 'process', f'Processing modes took {duration:.3f} s')
-				Log.info('App', 'process', f'  Mode times: {mode_times}')
+				Log.info(f'Processing modes took {duration:.3f} s')
+				Log.info(f'  Mode times: {mode_times}')
 
 	def draw(self):
 		""" Main draw method. Calls current mode draw method and
@@ -327,7 +334,7 @@ class App:
 			self.apply_music_fade()
 
 		except Exception as e:
-			Log.error('App', 'draw', str(e))
+			Log.error(e)
 
 	def handle_events(self):
 		""" Handle pygame events and messages from worker. """
@@ -360,7 +367,7 @@ class App:
 			self.pointer.held = self.pointer.down
 
 		# register keyboard input
-		if self.config.get('keyboard_input', False) is True:
+		if self.config.get('keyboard_input', True) is True:
 			pressed_keys = pygame.key.get_pressed()
 			held_keys = list(k for k in Misc.key_names if pressed_keys[pygame.key.key_code(k)])
 			self.new_keys = list(k for k in held_keys if k not in self.held_keys)
@@ -389,10 +396,10 @@ class App:
 		""" Sends a message to worker, or first worker by default. """
 
 		if len(self.workers) == 0:
-			Log.error('App', 'send_message', 'No workers')
+			Log.error('No workers')
 			return
 		if worker_name is not None and worker_name not in self.workers:
-			Log.error('App', 'send_message', f'No known worker {worker_name}')
+			Log.error(f'No known worker {worker_name}')
 			return
 		if isinstance(message, str):
 			message = {'action': message}
@@ -401,7 +408,7 @@ class App:
 		try:
 			worker.app_queue.put(json.dumps(message))
 		except Exception as e:
-			Log.error('App', 'send_message', str(e))
+			Log.error(e)
 
 	def receive_messages(self):
 		""" Receives messages from workers and calls process_message() on each. """
@@ -414,7 +421,7 @@ class App:
 			except queue.Empty:
 				continue
 			except Exception as e:
-				Log.error('App', 'receive_messages', str(e))
+				Log.error(e)
 				continue
 
 	def process_message(self, message: dict):
@@ -430,7 +437,7 @@ class App:
 			if self.headless is False:
 				self.set_standard_font()
 		else:
-			Log.error('App', 'process_message', f'Received unknown message: {message}')
+			Log.error(f'Received unknown message: {message}')
 
 	# low-level graphics methods
 
@@ -586,9 +593,9 @@ class App:
 				if image is not None:
 					images[name] = image
 				else:
-					Log.error('App', 'load_images', f'Image {full_filename} failed to load')
+					Log.error(f'Image {full_filename} failed to load')
 			except Exception as e:
-				Log.error('App', 'load_images', f'Exception loading image {full_filename}: {e}')
+				Log.error(f'Exception loading image {full_filename}: {e}')
 
 		# load animations
 		for animation_name in list(d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))):
@@ -617,7 +624,7 @@ class App:
 		""" Loads image at filename. Specify Alpha Blend if the image has an alpha channel. """
 
 		if os.path.isfile(filename) is False:
-			Log.error('App', 'load_image', f'No image named {filename}')
+			Log.error(f'No image named {filename}')
 			return None
 		try:
 			alpha_blend = alpha_blend or (os.path.splitext(filename)[1].lower() == '.png')
@@ -625,7 +632,7 @@ class App:
 			image = image.convert_alpha() if alpha_blend else image.convert()
 			return image
 		except Exception as e:
-			Log.error('App', 'load_image', str(e))
+			Log.error(e)
 			return None
 
 	def get_image(self, image: str|Surface) -> Surface|None:
@@ -634,7 +641,7 @@ class App:
 		if isinstance(image, Surface):
 			return image
 		if isinstance(image, str) is False:
-			Log.error('App', 'get_image', f'Could not identify image of type {type(image)}')
+			Log.error(f'Could not identify image of type {type(image)}')
 			return None
 		# in order: check mode image library, then app image library, and lastly try to load
 		i = self.mode.images.get(image) if self.mode is not None else None
@@ -651,7 +658,7 @@ class App:
 
 		i = self.get_image(image)
 		if i is None:
-			Log.error('App', 'blit', f'Could not get image of type {image}')
+			Log.error(f'Could not get image of type {image}')
 			return
 		flags=flags or 0
 		dest = dest or self.window
@@ -671,14 +678,14 @@ class App:
 				x -= size[0] / 2; y -= size[1]
 			dest.blit(i, (x, y), area=area, special_flags=flags)
 		except Exception as e:
-			Log.error('App', 'blit', str(e))
+			Log.error(e)
 
 	def scale_image(self, image: str|Surface, x_scale: int|float, y_scale: int|float=None) -> Surface|None:
 		""" Scales image. Scale proportionally (omit y_scale) or disproportionately. """
 
 		i = self.get_image(image)
 		if i is None:
-			Log.error('App', 'scale_image', f'Could not get image of type {image}')
+			Log.error(f'Could not get image of type {image}')
 			return None
 		y_scale = y_scale or x_scale
 		return pygame.transform.scale(i, (int(x_scale), int(y_scale)))
@@ -688,7 +695,7 @@ class App:
 
 		i = self.get_image(image)
 		if i is None:
-			Log.error('App', 'flip_image', f'Could not get image of type {image}')
+			Log.error(f'Could not get image of type {image}')
 			return None
 		return pygame.transform.flip(i, horizontal, vertical)
 
@@ -697,7 +704,7 @@ class App:
 
 		i = self.get_image(image)
 		if i is None:
-			Log.error('App', 'rotate_image', f'Could not get image of type {image}')
+			Log.error(f'Could not get image of type {image}')
 			return None
 		return pygame.transform.rotate(i, degrees)
 
@@ -706,7 +713,7 @@ class App:
 
 		i = self.get_image(image)
 		if i is None:
-			Log.error('App', 'rotate_image', f'Could not get image of type {image}')
+			Log.error(f'Could not get image of type {image}')
 			return None
 		i = i.copy()			# make a copy of the image to edit pixels in place
 		pixels = pygame.PixelArray(i)
@@ -783,21 +790,21 @@ class App:
 				if sound is not None:
 					sounds[name] = sound
 				else:
-					Log.error('App', 'load_sounds', f'Sound {full_filename} failed to load')
+					Log.error(f'Sound {full_filename} failed to load')
 			except Exception as e:
-				Log.error('App', 'load_sounds', f'Exception loading sound {full_filename}: {e}')
+				Log.error(f'Exception loading sound {full_filename}: {e}')
 		return sounds
 
 	def load_sound(self, sound) -> Sound:
 		""" Loads a sound by filename or buffer and returns pygame Sound object. """
 
 		if isinstance(sound, str) and not os.path.isfile(sound):
-			Log.error('App', 'load_sound', f'No file named {sound}')
+			Log.error(f'No file named {sound}')
 			return None
 		try:
 			return pygame.mixer.Sound(sound)
 		except Exception as e:
-			Log.error('App', 'load_sound', str(e))
+			Log.error(e)
 			return None
 
 	def get_sound(self, sound: str|Sound):
@@ -806,7 +813,7 @@ class App:
 		if isinstance(sound, Sound):
 			return sound
 		if isinstance(sound, str) is False:
-			Log.error('App', 'get_sound', f'Could not identify sound of type {type(sound)}')
+			Log.error(f'Could not identify sound of type {type(sound)}')
 			return None
 		# in order: check mode sound library, then app sound library, and lastly try to load
 		s = self.mode.sounds.get(sound, None) if self.mode is not None else None
@@ -822,7 +829,7 @@ class App:
 
 		sound = self.get_sound(sound)
 		if sound is None:
-			Log.error('App', 'play_sound', f'Could not get sound {sound}')
+			Log.error(f'Could not get sound {sound}')
 			return
 		volume = volume or self.sound_volume
 		if volume is not None and volume != 100:
@@ -835,14 +842,14 @@ class App:
 
 		sound = self.get_sound(sound)
 		if sound is None:
-			Log.error('App', 'play_sound_on_channel', f'Could not get sound {sound}')
+			Log.error(f'Could not get sound {sound}')
 			return None
 		volume = volume or self.sound_volume
 		if volume is not None and volume != 100:
 			sound.set_volume(volume / 100.0)
 		channel = pygame.mixer.find_channel()
 		if channel is None:
-			Log.error('App', 'play_sound_on_channel', 'Could not find open channel')
+			Log.error('Could not find open channel')
 			return None
 		channel.play(sound, loops=loops or 0)
 		return channel
@@ -865,7 +872,7 @@ class App:
 		if enable:
 			filename = os.path.join(self.base_path, 'sounds', 'sound_retainer.wav')
 			if os.path.isfile(filename) is False:
-				Log.error('App', 'set_sound_retainer', f'{filename} does not exist')
+				Log.error(f'{filename} does not exist')
 				return
 			self.sound_retainer = pygame.mixer.Sound(filename)
 			self.sound_retainer.play(loops=-1)
@@ -879,7 +886,7 @@ class App:
 		""" Finds music by name. """
 
 		if isinstance(music_name, str) is False:
-			Log.error('App', 'get_music', f'Could not identify music of type {type(music_name)}')
+			Log.error(f'Could not identify music of type {type(music_name)}')
 			return None
 
 		mode_path = os.path.join(self.base_path, self.mode.name, 'music', music_name)
@@ -895,7 +902,7 @@ class App:
 
 		music = self.get_music(filename)
 		if music is None:
-			Log.error('App', 'play_music', f'No file named {filename}')
+			Log.error(f'No file named {filename}')
 			return
 		volume = volume or self.music_volume
 		pygame.mixer.music.set_volume(volume / 100.0)
@@ -903,7 +910,7 @@ class App:
 			pygame.mixer.music.load(music)
 			pygame.mixer.music.play(loops=loops)
 		except Exception as e:
-			Log.error('App', 'play_music', str(e))
+			Log.error(e)
 
 	def stop_music(self):
 		""" Stops music. """
@@ -949,15 +956,15 @@ class App:
 		if os.path.isfile(filename) is False:
 			filename = self.app_state_start_filename
 			if os.path.isfile(filename) is False:
-				Log.info('App', 'load_app_state', 'No app_state or app_state_start - using empty state dict')
+				Log.info('No app_state or app_state_start - using empty state dict')
 				self.app_state = {}
 				return
 		with open(filename, 'rt', encoding='UTF-8') as f:
 			try:
 				self.app_state = json.loads(f.read().strip())
-				Log.info('App', 'load_app_state', 'Loaded app state')
+				Log.info('Loaded app state')
 			except Exception as e:
-				Log.error('App', 'load_app_state', str(e))
+				Log.error(e)
 				self.app_state = {}
 
 	def set_app_state(self, key, value):
@@ -972,7 +979,7 @@ class App:
 
 		with open(self.app_state_filename, 'wt', encoding='UTF-8') as f:
 			f.write(json.dumps(self.app_state, ensure_ascii=True))
-		Log.debug('App', 'save_app_state', 'Saved app state')
+		Log.debug('Saved app state')
 
 	# script and scene methods
 
@@ -996,7 +1003,7 @@ class App:
 		# set scene number in app state
 		self.app_state.setdefault('scene', 0)
 
-		Log.debug('App', 'init_script', 'Loaded and initialized script')
+		Log.debug('Loaded and initialized script')
 
 	def run_script(self):
 		""" Begins script execution. """
@@ -1007,28 +1014,28 @@ class App:
 		""" Selects scene by name or number. """
 
 		if self.script is None:
-			Log.error('App', 'select_scene', 'No loaded script')
+			Log.error('No loaded script')
 			return
 		scene_number = None
 		if isinstance(scene_id, int):
 			if scene_id >= len(self.script):
-				Log.error('App', 'select_scene', f'Scene number {scene_id} cannot be selected ({len(self.script)} scenes)')
+				Log.error(f'Scene number {scene_id} cannot be selected ({len(self.script)} scenes)')
 				return
 			scene_number = scene_id
 		else:
 			matches = list(i for i, s in enumerate(self.script) if s.get('name') == scene_id)
 			if len(matches) == 0:
-				Log.error('App', 'select_scene', f'Unknown scene {scene_id}')
+				Log.error(f'Unknown scene {scene_id}')
 				return
 			scene_number = matches[0]
 		self.set_app_state('scene', scene_number)
 		scene = self.script[scene_number]
 		mode_name = scene.get('mode')
 		if mode_name not in self.modes:
-			Log.error('App', 'select_scene', f'No mode named {mode_name}')
+			Log.error(f'No mode named {mode_name}')
 			return
 		self.set_mode(mode_name, mode_parameters=scene.copy())
-		Log.debug('App', 'select_scene', f'Selected scene {scene_number} ({scene})')
+		Log.debug(f'Selected scene {scene_number} ({scene})')
 
 	def advance_scene(self, delta: int=1):
 		""" Advances to indicated scene. """
@@ -1077,9 +1084,18 @@ class App:
 		return Rect(0, 0, int(width), int(height))
 
 	def create_font(self, name='Arial', size=12):
-		""" Creates a font. """
+		""" Creates a font from a path or a system font name. """
 
-		return pygame.font.SysFont(name, size)
+		if os.path.isfile(name):
+			try:
+				return pygame.font.SysFont(name, size)
+			except Exception as e:
+				Log.error(f'Exception loading font {name}: {e}')
+		else:
+			try:
+				return pygame.font.SysFont(name, size)
+			except Exception as e:
+				Log.error(f'Exception creating font {name}: {e}')
 
 	def set_standard_font(self):
 		""" Sets default font, including a range of sizes. """
@@ -1094,7 +1110,7 @@ class App:
 		current_index = len(self.font_list) if self.standard_font_name not in self.font_list else self.font_list.index(self.standard_font_name)
 		new_standard_font = self.font_list[(current_index + 1) % len(self.font_list)]
 		self.update_config('font', new_standard_font)
-		Log.info('App', 'change_font', f'Changed font to {new_standard_font}')
+		Log.info(f'Changed font to {new_standard_font}')
 
 	def update_config(self, key, value):
 		""" Updates config key/value pair by sending a message to worker. """
@@ -1102,7 +1118,7 @@ class App:
 		message = {'action': 'update config', 'key': key, 'value': value}
 		for name in (name for name, worker in self.workers.items() if worker.config_manager):
 			self.send_message(message, name)
-		Log.info('App', 'update_config', f'Setting {key} to {value}')
+		Log.info(f'Setting {key} to {value}')
 
 	# exit functions
 
@@ -1116,7 +1132,7 @@ class App:
 	def exit(self, code=0):
 		""" Exits application. """
 
-		Log.info('App', 'exit', 'Exiting')
+		Log.info('Exiting')
 		for worker in self.workers.values():
 			if worker.worker_process is not None:
 				self.send_message('exit', worker.name)
@@ -1130,7 +1146,7 @@ class App:
 	def reboot(self):
 		""" Reboots device. """
 
-		Log.info('App', 'reboot', 'Rebooting device')
+		Log.info('Rebooting device')
 		self.fill_screen()
 		pygame.display.flip()
 		os.system('sudo shutdown -r now')
@@ -1138,7 +1154,7 @@ class App:
 	def shut_down(self):
 		""" Shuts down device. """
 
-		Log.info('App', 'shut_down', 'Shutting down device')
+		Log.info('Shutting down device')
 		self.fill_screen()
 		pygame.display.flip()
 		os.system('sudo shutdown now')

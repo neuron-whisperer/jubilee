@@ -36,6 +36,6 @@ class ShutDownMode(Mode):
 		""" Cancel shutdown and return to previous mode. """
 
 		if self.return_mode is None:
-			Log.error('ShutDownMode', 'cancel_shutdown', 'return_mode is None')
+			Log.error('return_mode is None')
 		else:
 			self.app.set_mode(self.return_mode)

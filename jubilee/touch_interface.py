@@ -21,21 +21,21 @@ class TouchInterface(PointerInterface):
 				except:
 					pass
 			if device_number is None:
-				Log.error('TouchInterface', '__init__', 'Could not find touchscreen input among device events')
+				Log.error('Could not find touchscreen input among device events')
 				self.touch = None
 				return
-			Log.info('TouchInterface', '__init__', f'Found touchscreen on device /dev/input/event{device_number}')
+			Log.info(f'Found touchscreen on device /dev/input/event{device_number}')
 			device = f'/dev/input/event{device_number}'
 			self.touch = evdev.InputDevice(device)
 			self.touch.grab()
-			Log.info('TouchInterface', '__init__', f'Grabbed {device} - info: {self.touch.info}')
+			Log.info(f'Grabbed {device} - info: {self.touch.info}')
 		except Exception as e:
-			Log.error('TouchInterface', '__init__', f'Exception during grab: {e}')
+			Log.error(f'Exception during grab: {e}')
 			return
 		self.resolution = resolution
 		self.scale = scale
 		if resolution is None or scale is None:
-			Log.warning('TouchInterface', '__init__', 'resolution and/or scale not specified')
+			Log.warning('resolution and/or scale not specified')
 		self.swap_axes = swap_axes
 
 	def detect_events(self) -> bool:
