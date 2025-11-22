@@ -9,6 +9,7 @@ class Worker:
 
 	config_defaults = {'headless': False,
 		'screen_resolution': [320, 240], 'screen_scale': [[0, 319, -1], [0, 239, 1]],
+		'screen_rotation': 0, 'headless': False, 'nosound': False,
 		'app_process_fps': 20, 'app_draw_fps': 20, 'modal': True,
 		'worker_process_fps': 20, 'worker_process_periodic_fps': 1,
 		'persist_app_state': True, 'app_state_filename': 'app_state.txt',

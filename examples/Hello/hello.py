@@ -48,11 +48,9 @@ class HelloMode(Mode):
 
 	def process(self):
 		""" Process method for Hello mode. """
-		super().process()												# this can be deleted if not using submodes
 
 	def draw(self):
 		""" Draw method for Hello mode. """
-		super().draw()
 
 		# draw text in default font to show click count
 		text = f'Click Count: {self.click_count}'

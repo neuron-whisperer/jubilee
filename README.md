@@ -26,6 +26,8 @@ A common problem with such projects is the gap between a newly configured device
 
 * How do I apply visual effects like popover messages and fade transitions?
 
+* How do I apply a screen orientation other than the native orientation of the display?
+
 * How do I play sounds and music?
 
 * How do I receive and handle keyboard input?
@@ -98,6 +100,7 @@ The Examples folder contains a variety of example projects that run right out of
 * **Modes** - A project that demonstrates two modes, packaged into two Mode classes.
 * **Submodes** - A project that demonstrates submodes.
 * **Script** - A project that demonstrates mode scripting.
+* **Rotation** - A project that demonstrates 180-degree screen rotation. (Can also change screen_rotation in config.txt to 90 or 270.)
 
 These projects can be used for quick reference, as sandboxes to experiment with the features, or as templates for new projects with similar features.
 
@@ -130,3 +133,5 @@ Additional features:
 * **Animations and Sprites:** Each images folder can contain a subfolder for an animation as a set of images corresponding to animation frames. Each subfolder is loaded into an Animation as a set of frames. For each mode, a set of Sprites can be generated, each having an Animation object, x/y coordinates, and a current animation frame number. The mode `draw` method can render all of the sprites for the mode by calling `mode.render_sprites()`. A sprite can be configured to animate automatically through all frames of an Animation at a given rate. Further, if some frames for an Animation are named consistently and numbered - e.g.: `walk_left_1.jpg`, `walk_left_2.jpg`, etc. - then the Animation generates a Sequence, indexed by the shared name `walk_left`, and containing a list of the indexes in the Animation `frames` list that correspond to the animation sequence. A Sprite can be set to a specific Sequence in a given Animation, and can animate (automatically or on-demand) over the frames of the Sequence.
 
 * **Input:** On Linux, Jubilee will handle touch input if the config parameter touch_input is True. On macOS, Jubilee automatically handles mouse events. Jubilee also stores and provides keyboard input on a key basis (`new_keys` for newly pressed keys and `held_keys` for all keys that are currently down) and as a keyboard buffer (`keyboard_buffer` as a string and `keyboard_buffer_chars` as an array of keys).
+
+* **Screen Rotation:** SDL2 does not support 90/180/270-degree hardware screen rotation. Jubilee enables screen rotation by inserting an additional surface between the screen and the drawing functions to receive all of the graphical content, and then applying a pygame rotation to the surface before blitting it to the screen. This is extremely inefficient and likely to be very slow, but it is the only real option, as the architecture of SDL2 apparently cannot be adapted to include hardware support for screen rotation. This issue is addressed in SDL3, so this functionality will likely be greatly improved once SDL3 support is added to pygame.

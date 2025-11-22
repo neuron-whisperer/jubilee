@@ -385,11 +385,14 @@ This file contains high-level Jubilee application configuration features. App lo
 
 ```
 "screen_resolution": [320, 240] 			 # screen resolution for drawing
+"screen_rotation": 0                         # 90/180/270-degree rotations
+"headless": false                            # display vs. no-display configurations
 "pointer_input": true						 # receive pointer (mouse or touch) events
 "keyboard_input": false						 # receive keyboard events 
 "screen_scale": [[0, 319, -1], [0, 239, 1]]  # screen range/direction for pointer input
 "app_process_fps": 10       			     # app.process() fps
 "app_draw_fps": 10							 # app.draw() fps 
+"nosound": false                             # sound vs. no-sound configurations
 "modal": false								 # app_process => current mode or all modes
 "worker_process_fps": 20			         # worker.process() fps
 "worker_process_periodic_fps": 1             # worker.process_periodic() fps

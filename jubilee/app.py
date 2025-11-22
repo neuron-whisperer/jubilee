@@ -42,6 +42,10 @@ class App:
 		if self.headless is True:
 			Log.info('Running in headless mode')
 			os.environ['SDL_VIDEODRIVER'] = 'dummy'
+		self.nosound = self.config.get('nosound', False)
+		if self.nosound is True:
+			Log.info('Running in nosound mode')
+			os.environ['SDL_AUDIODRIVER'] = 'dummy'
 		try:
 			pygame.init()
 		except Exception as e:
@@ -64,10 +68,19 @@ class App:
 				pygame.mouse.set_visible(False)
 				flags = pygame.DOUBLEBUF | pygame.FULLSCREEN | pygame.NOFRAME
 			size = (self.screen_width, self.screen_height)
+
+			# adjust for screen rotation
+			self.screen = None
+			self.screen_rotation = self.config.get('screen_rotation', 0)
+			if self.screen_rotation in (90, 270):
+				size = (size[1], size[0])
 			try:
 				self.window = pygame.display.set_mode(size=size, flags=flags, display=0, vsync=1)
 			except:
 				self.window = pygame.display.set_mode(size=size, flags=flags, display=0)
+			if self.screen_rotation != 0:
+				self.screen = self.window
+				self.window = pygame.Surface(size=(self.screen_width, self.screen_height))
 
 			# fade overlay
 			self.display_fade_overlay = Surface(size=size).convert_alpha()
@@ -269,7 +282,7 @@ class App:
 			self.process_last = time.time()
 			self.handle_events()
 			report_threshold = 0.2		# report processing if more than 0.2 seconds
-	
+
 			start = time.time()
 			if self.config.get('modal') is True:			# only process current mdoe
 				if self.mode is None:
@@ -340,7 +353,7 @@ class App:
 
 			# finalize display
 			self.apply_display_fade()
-			pygame.display.flip()
+			self.flip()
 
 			# apply music fade
 			self.apply_music_fade()
@@ -454,8 +467,12 @@ class App:
 	# low-level graphics methods
 
 	def flip(self):
-		""" Flips display buffers. This occurs automatically at the end of draw(). """
+		""" Flips display buffers. This occurs automatically at the end of draw().
+				Also handles software rotation. """
 
+		if self.screen_rotation != 0:
+			rotated_screen = pygame.transform.rotate(self.window, self.screen_rotation)
+			self.screen.blit(rotated_screen, (0, 0))
 		pygame.display.flip()
 
 	def fill_screen(self, color: str|int|tuple='white'):
@@ -839,6 +856,8 @@ class App:
 				Volume can be specified (range 0.0-1.0) to override
 				sound volume; otherwise, sound will play at preset sound volume. """
 
+		if self.nosound is True:
+			return
 		sound = self.get_sound(sound)
 		if sound is None:
 			Log.error(f'Could not get sound {sound}')
@@ -852,6 +871,8 @@ class App:
 		""" Plays sound on open channel. Same logic as play_sound(),
 				except that it returns the channel of the sound. """
 
+		if self.nosound is True:
+			return None
 		sound = self.get_sound(sound)
 		if sound is None:
 			Log.error(f'Could not get sound {sound}')
@@ -873,6 +894,9 @@ class App:
 				Volume changes for currently playing music will occur
 				immediately, but currently playing sounds are not affected. """
 
+		if self.nosound is True:
+			return
+
 		self.music_volume = volume
 		pygame.mixer.music.set_volume(volume / 100.0)
 		self.sound_volume = sound_volume or volume
@@ -880,6 +904,9 @@ class App:
 	def set_sound_retainer(self, enable: bool=True):
 		""" Sets a retainer sound that plays a 1-second loop of very
 				quiet noise to keep a sound channel active. """
+
+		if self.nosound is True:
+			return
 
 		if enable:
 			filename = os.path.join(self.base_path, 'sounds', 'sound_retainer.wav')
@@ -912,6 +939,8 @@ class App:
 				Volume can be specified for this music (range 0-100) or will play at default.
 				"""
 
+		if self.nosound is True:
+			return
 		music = self.get_music(filename)
 		if music is None:
 			Log.error(f'No file named {filename}')
@@ -927,12 +956,17 @@ class App:
 	def stop_music(self):
 		""" Stops music. """
 
+		if self.nosound is True:
+			return
+
 		pygame.mixer.music.stop()
 		self.music_fade_steps = self.music_fade_step = None
 
 	def is_music_playing(self):
 		""" Returns whether music is playing. """
 
+		if self.nosound is True:
+			return False
 		return pygame.mixer.music.get_busy()
 
 	def start_music_fade(self, steps: int):
@@ -1103,11 +1137,13 @@ class App:
 				return pygame.font.SysFont(name, size)
 			except Exception as e:
 				Log.error(f'Exception loading font {name}: {e}')
+				return None
 		else:
 			try:
 				return pygame.font.SysFont(name, size)
 			except Exception as e:
 				Log.error(f'Exception creating font {name}: {e}')
+				return None
 
 	def set_standard_font(self):
 		""" Sets default font, including a range of sizes. """
@@ -1160,7 +1196,7 @@ class App:
 
 		Log.info('Rebooting device')
 		self.fill_screen()
-		pygame.display.flip()
+		self.flip()
 		os.system('sudo shutdown -r now')
 
 	def shut_down(self):
@@ -1168,7 +1204,7 @@ class App:
 
 		Log.info('Shutting down device')
 		self.fill_screen()
-		pygame.display.flip()
+		self.flip()
 		os.system('sudo shutdown now')
 
 	@staticmethod
