@@ -17,6 +17,8 @@ class Control:
 		self.provided_hold_handler = hold
 		self.provided_release_handler = release
 		self.name = name or 'Control'
+		self.visible = True
+		self.enabled = True
 		self.parameters = parameters or {}
 
 	def bind(self, app):
@@ -34,6 +36,9 @@ class Control:
 
 		if self.provided_click_handler is not None:
 			self.provided_click_handler()
+	
+	def click(self):
+		""" Control click event stub method. """
 
 	def on_hold(self):
 		""" Control hold event receiver. """
@@ -48,7 +53,7 @@ class Control:
 			self.provided_release_handler()
 
 	def draw(self):
-		""" Draw method. """
+		""" Control draw stub method. """
 
 	def exit_handler(self):
 		""" Control handler method for exiting app. """

@@ -95,12 +95,13 @@ The Examples folder contains a variety of example projects that run right out of
 * **Headless** - A project with no display. (Can still play sound and music.)
 * **Pointer** - A project that demonstrates pointer input (and simple graphics).
 * **Images** - A project that demonstrates images and sprite animations.
+* **Image_Effects** - A project that demonstrates image effects.
 * **Sound** - A project that demonstrates sound and music.
 * **Controls** - A project that demonstrates various UI controls.
 * **Modes** - A project that demonstrates two modes, packaged into two Mode classes.
 * **Submodes** - A project that demonstrates submodes.
 * **Script** - A project that demonstrates mode scripting.
-* **Rotation** - A project that demonstrates 180-degree screen rotation. (Can also change screen_rotation in config.txt to 90 or 270.)
+* **Screen_Rotation** - A project that demonstrates 180-degree screen rotation. (Can also change screen_rotation in config.txt to 90 or 270.)
 
 These projects can be used for quick reference, as sandboxes to experiment with the features, or as templates for new projects with similar features.
 

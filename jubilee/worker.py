@@ -8,13 +8,21 @@ class Worker:
 	""" Worker class. """
 
 	config_defaults = {'headless': False,
-		'screen_resolution': [320, 240], 'screen_scale': [[0, 319, -1], [0, 239, 1]],
-		'screen_rotation': 0, 'headless': False, 'nosound': False,
-		'app_process_fps': 20, 'app_draw_fps': 20, 'modal': True,
-		'worker_process_fps': 20, 'worker_process_periodic_fps': 1,
-		'persist_app_state': True, 'app_state_filename': 'app_state.txt',
+		'nosound': False,
+		'screen_resolution': [320, 240],
+		'screen_scale': [[0, 319, -1], [0, 239, 1]],
+		'screen_rotation': 0,
+		'app_process_fps': 20,
+		'app_draw_fps': 20, 'modal': True,
+		'worker_process_fps': 20,
+		'worker_process_periodic_fps': 1,
+		'persist_app_state': True,
+		'app_state_filename': 'app_state.txt',
 		'app_state_start_filename': 'app_state_start.txt',
-		'keyboard_input': True, 'log_rotation': 'daily', 'font_size': 14}
+		'keyboard_input': True,
+		'log_rotation': 'daily',
+		'font_size': 14
+	}
 
 	def __init__(self, app_queue, worker_queue, config_manager=False, log_manager=False):
 		self.name = 'Worker'
@@ -60,19 +68,14 @@ class Worker:
 				self.receive_messages()
 
 				# call main process function
-				self.process()
+				self.on_process()
 
 				# call periodic process function occasionally
 				process_periodic_fps = self.config.get('worker_process_periodic_fps', 1)
 				if process_periodic_fps is not None:
 					elapsed = time.time() - (self.last_periodic or 0)
 					if elapsed >= 1 / process_periodic_fps:
-						self.last_periodic = (self.last_periodic or time.time()) + 1.0 / process_periodic_fps
-						if self.config_manager is True:
-							self.manage_config()
-						if self.log_manager is True:
-							self.manage_log()
-						self.process_periodic()
+						self.on_process_periodic()
 
 				# delay to next loop
 				loop_time = time.time() - loop_start
@@ -124,11 +127,29 @@ class Worker:
 			Log.backup(backup_filename=filename)
 			self.log_date = datetime.datetime.now()
 
+	def on_process(self):
+		""" Regular (high-frequency) worker processing event receiver.
+				This merely wraps process() but is a placeholder for future
+				functionality and for consistency with other event receivers. """
+
+		self.process()
+
 	def process(self):
-		""" Regular (high-frequency) worker processing. """
+		""" Regular (high-frequency) worker processing stub function. """
+
+	def on_process_periodic(self):
+		""" Periodic (low-frequency) worker processing event receiver. """
+
+		process_periodic_fps = self.config.get('worker_process_periodic_fps', 1)
+		self.last_periodic = (self.last_periodic or time.time()) + 1.0 / process_periodic_fps
+		if self.config_manager is True:
+			self.manage_config()
+		if self.log_manager is True:
+			self.manage_log()
+		self.process_periodic()
 
 	def process_periodic(self):
-		""" Periodic (low-frequency) worker processing. """
+		""" Periodic (low-frequency) worker processing stub function. """
 
 	def exit(self, code=0):
 		sys.exit(code)

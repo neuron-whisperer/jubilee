@@ -70,13 +70,13 @@ class Log:
 	file_levels = {}
 	console_level = logging.WARNING
 
-	format_string = f'%(asctime)s\t%(class_name)s\t%(function_name)s\t%(levelname)s\t%(message)s'
+	format_string = '%(asctime)s\t%(class_name)s\t%(function_name)s\t%(levelname)s\t%(message)s'
 	formatter = logging.Formatter(format_string, datefmt='%Y%m%d %H:%M:%S')
 
 	@classmethod
 	def parse(cls, record: str) -> dict|None:
 		""" Parses log message string into fields. """
-		
+
 		record = record.strip()
 		try:
 			fields = record.split('\t')

@@ -1,6 +1,7 @@
-""" Jubilee base classes. """
+""" Jubilee Mode class. """
 
 import inspect, os
+from .base_classes import Sprite, SpritePosition
 from .controls import Control
 from .misc import Log
 
@@ -11,12 +12,12 @@ class Mode:
 
 		# app and mode settings
 		self.app = None
-		self.name='Unnamed Mode'
+		if hasattr(self, 'name') is False:		# preserve name declared in subclass
+			self.name = 'Unnamed Mode'
+		self.background_color = background_color
 		self.mode_timer = None
 		self.submode = None
 		self.submode_timer = None
-		self.background_color = background_color
-		self.selected_control = None
 
 		# find submodes by introspection
 		method_names = list(m[0] for m in inspect.getmembers(self, predicate=inspect.ismethod))
@@ -29,6 +30,8 @@ class Mode:
 
 		# controls
 		self.controls = []		# Z-ordered from highest to lowest
+		self.show_controls = True
+		self.selected_control = None
 
 		# load resources
 		self.images_path = None
@@ -37,10 +40,10 @@ class Mode:
 		self.sounds_path = None
 		self.sounds = {}
 		self.sprites = []
-		self.sprite_positions = 'bottom'		# can be topleft, center, or bottom
+		self.sprite_positions = SpritePosition.Bottom		# topleft, center, bottom, or None
 
 	def init(self):
-		""" Mode-specific initializer. """
+		""" Mode-specific stub initializer. """
 
 	def load_resources(self):
 		""" Mode resource loading. Called during app.add_mode() after init(). """
@@ -51,7 +54,7 @@ class Mode:
 		self.sounds = self.app.load_sounds(self.sounds_path)
 
 	def on_enter(self, mode_parameters: dict=None):
-		""" Mode enter receiver method. """
+		""" Mode enter event receiver. """
 
 		self.mode_timer = 0
 		try:
@@ -60,7 +63,7 @@ class Mode:
 			Log.error(e)
 
 	def enter(self, mode_parameters: dict=None):
-		""" Mode enter method. """
+		""" Mode enter event stub method. """
 
 	def set_submode(self, name: str|None, mode_parameters: dict=None):
 		""" Sets submode and resets submode timer. """
@@ -94,6 +97,12 @@ class Mode:
 		self.controls.append(control)
 		return control
 
+	def get_control(self, name: str) -> Control|None:
+		""" Gets control by name. If several controls have the name, returns the first one. """
+
+		matching_controls = list(c for c in self.controls if c.name == name)
+		return matching_controls[0] if len(matching_controls) > 0 else None
+
 	def remove_control(self, control):
 		""" Remove control from mode. Can either pass in the control or its caption. """
 
@@ -119,14 +128,16 @@ class Mode:
 		""" Mode click event receiver. """
 
 		# test controls first
-		for control in self.controls:
-			if control.collide(x, y):
-				self.selected_control = control
-				try:
-					control.on_click()
-				except Exception as e:
-					Log.error(f'Exception clicking control {control.name}: {e}')
-				return
+		if self.show_controls is True:
+			for control in self.controls:
+				if control.visible is True and control.collide(x, y):
+					if control.enabled is True:
+						self.selected_control = control
+						try:
+							control.on_click()
+						except Exception as e:
+							Log.error(f'Exception clicking control {control.name}: {e}')
+					return
 
 		# send to click mode or submode
 		if self.submode is not None and hasattr(self, f'click_{self.submode}'):
@@ -141,7 +152,7 @@ class Mode:
 				Log.error(e)
 
 	def click(self, x: int|float, y: int|float):
-		""" Mode click event method. """
+		""" Mode click event stub method. """
 
 	def on_hold(self):
 		""" Mode hold event receiver. """
@@ -158,10 +169,10 @@ class Mode:
 				Log.error(e)
 
 	def hold(self):
-		""" Mode hold event method. """
+		""" Mode hold event stub method. """
 
 	def on_release(self):
-		""" Mode release event method. """
+		""" Mode release event receiver. """
 
 		if self.selected_control is not None:
 			try:
@@ -176,17 +187,17 @@ class Mode:
 				Log.error(e)
 
 	def release(self):
-		""" Mode release event method. """
+		""" Mode release event stub method. """
 
 	def on_process(self):
-		""" Mode process receiver method. """
+		""" Mode process event receiver. """
 
 		if self.submode is not None and hasattr(self, f'process_{self.submode}'):
 			try:
 				try:
 					getattr(self, f'process_{self.submode}')()
 				except Exception as e:
-					Log.error(f'Error processing mode {self.name} submode {self.submode}: {e}')			
+					Log.error(f'Error processing mode {self.name} submode {self.submode}: {e}')
 			except Exception as e:
 				Log.error(f'Exception processing mode {self.name} submode {self.submode}: {e}')
 		else:
@@ -194,12 +205,14 @@ class Mode:
 				self.process()
 			except Exception as e:
 				Log.error(f'Error processing mode {self.name}: {e}')
+		for sprite in self.sprites:
+			sprite.process()
 
 	def process(self):
-		""" Mode process method. """
+		""" Mode process stub method. """
 
 	def on_draw(self):
-		""" Mode draw receiver method. """
+		""" Mode draw event receiver. """
 
 		self.mode_timer += 1
 		if self.background_color is not None:
@@ -217,19 +230,51 @@ class Mode:
 				Log.error(e)
 
 		# draw controls in reverse order, i.e., back-to-front if overlapping
-		for control in reversed(self.controls):
-			try:
-				control.draw()
-			except Exception as e:
-				Log.error(f'Exception drawing mode {self.name} control {control.name}: {e}')
+		if self.show_controls is True:
+			for control in reversed(self.controls):
+				if control.visible is True:
+					try:
+						control.draw()
+					except Exception as e:
+						Log.error(f'Exception drawing mode {self.name} control {control.name}: {e}')
 
 	def draw(self):
-		""" Mode draw method. """
+		""" Mode draw stub method. """
 
-	def add_sprite(self, sprite):
+	def add_sprite(self, sprite) -> Sprite:
 		""" Adds sprite. """
 
+		sprite.bind(self.app)
 		self.sprites.append(sprite)
+		return sprite
+
+	def get_sprite(self, name: str) -> Sprite|None:
+		""" Gets sprite by name. If several sprites have the name, returns the first one. """
+
+		matching_sprites = list(s for s in self.sprites if s.name == name)
+		return matching_sprites[0] if len(matching_sprites) > 0 else None
+
+	def render_sprites(self, auto_animate: bool=True):
+		""" Draws sprites on window, optionally calling auto_animate on each.
+				Sprites are drawn in the order defined by sprite_positions: topleft, center,
+				bottom, or None. """
+
+		# first auto-animate all sprites to set sizes
+		for s in self.sprites:
+			if auto_animate:
+				s.auto_animate()
+			s.set_image()
+
+		# sort by sprite positions, with Z-order taking priority
+		if self.sprite_positions is not None:
+			self.sprites.sort(key=lambda s: (s.y or 0) * self.app.screen_width + (s.x or 0))
+		if any(s.z is not None for s in self.sprites):
+			self.sprites.sort(key=lambda s: 100 if s.z is None else s.z, reverse=True)
+
+		# render
+		for s in self.sprites:
+			if s.image is not None:
+				self.app.blit(s.image, s.x, s.y, position=self.sprite_positions)
 
 	def remove_sprite(self, sprite):
 		""" Removes sprite. """
@@ -239,23 +284,13 @@ class Mode:
 			return
 		self.sprites.remove(sprite)
 
-	def render_sprites(self, auto_animate: bool=True):
-		""" Draws sprites on window, optionally calling auto_animate on each.
-				Sprites are drawn in the order defined by sprite_positions: top-left, center,
-				or bottom. """
+	def remove_sprites(self):
+		""" Removes all sprites. """
 
-		self.sprites.sort(key=lambda s: (s.y or 0) * self.app.screen_width + (s.x or 0))
-		for s in self.sprites:
-			if auto_animate:
-				s.auto_animate()
-			if s.animation is None or s.frame_number is None:
-				continue
-			frame = s.get_animation_frame()
-			if frame is not None:
-				self.app.blit(frame.image, s.x, s.y, position=self.sprite_positions)
+		self.sprites = []
 
 	def on_exit(self):
-		""" Mode exit receiver method. """
+		""" Mode exit event receiver. """
 
 		self.mode_timer = None
 
@@ -280,4 +315,4 @@ class Mode:
 		self.submode = None
 
 	def exit(self):
-		""" Mode exit method. """
+		""" Mode exit event stub method. """

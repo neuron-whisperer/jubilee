@@ -144,7 +144,7 @@ class LogMode(Mode):
 				for i in range(1, len(self.cpu_load)):
 					cpu = 48 - int(self.cpu_load[i] / 100.0 * 38.0)
 					self.app.draw_pixel(graph_x + i + 1, cpu)
-	
+
 			# draw CPU temp
 			if len(self.cpu_temp) > 0:
 				self.app.draw_text(f'Temp: {self.cpu_temp[-1]} C', self.app.margin, 70)
@@ -153,14 +153,14 @@ class LogMode(Mode):
 				for i, temp in enumerate(self.cpu_temp):
 					cpu = 98 - int(temp / 100.0 * 38.0)
 					self.app.draw_pixel(graph_x + i + 1, cpu)
-	
+
 			# check page_down and ensure that it has not gone past end of log
 			if self.log_lines_per_page < 1:
 				Log.debug(f'log_lines_per_page = {self.log_lines_per_page}')
 				return
 			num_pages = math.ceil(len(self.log_text) / self.log_lines_per_page)
 			self.log_page = max(0, min(self.log_page, num_pages - 1))
-	
+
 			# draw log
 			y = 95 + self.log_line_height
 			self.app.draw_text('Log', self.app.margin, y)

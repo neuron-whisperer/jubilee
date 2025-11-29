@@ -8,7 +8,7 @@ from pygame.surface import Surface
 from pygame.mixer import Sound, Channel
 from .worker import Worker
 from .mode import Mode
-from .base_classes import Animation, AnimationFrame
+from .base_classes import SpritePosition, Animation
 from .misc import Config, Log, Color, Misc
 
 class App:
@@ -193,10 +193,10 @@ class App:
 		try:
 			while True:
 				if time.time() - self.process_last >= self.process_period:
-					self.process()
+					self.on_process()
 				if self.headless is False:
 					if time.time() - self.draw_last >= self.draw_period:
-						self.draw()
+						self.on_draw()
 				process_delay = self.process_period - (time.time() - self.process_last)
 				draw_delay = 1 if self.headless is True else self.draw_period - (time.time() - self.draw_last)
 				delay = min(process_delay, draw_delay)
@@ -267,13 +267,18 @@ class App:
 			Log.error(f'No known mode named {mode}')
 			return
 		self.mode = new_mode
-		self.mode.on_enter(mode_parameters=mode_parameters)
+		try:
+			self.mode.on_enter(mode_parameters=mode_parameters)
+		except Exception as e:
+			Log.error(f'Exception while entering mode {self.mode.name}: {e}')
 		submode = mode_parameters.get('submode')
 		if submode is not None:
 			self.mode.set_submode(submode)
 
-	def process(self):
-		""" Main app process method. Calls current mode process method. """
+	def on_process(self):
+		""" Main app process event receiver. Calls current mode process method. """
+
+		self.process()
 
 		if self.mode is None:
 			return
@@ -310,8 +315,12 @@ class App:
 		except Exception as e:
 			Log.error(e)
 
-	def draw(self):
-		""" Main draw method. Calls current mode draw method and
+	def process(self):
+		""" App process stub function. Called before mode-specific processing
+				(in case the app needs to change modes). """
+
+	def on_draw(self):
+		""" Main draw method event receiver. Calls current mode draw method and
 				then draws controls and popover message. """
 
 		self.draw_last = time.time()
@@ -348,11 +357,15 @@ class App:
 					self.popover_steps = None
 					self.popover_step = None
 
+			self.apply_display_fade()
+
 			if self.display_fps:
 				self.draw_text(str(self.fps_count), 20, 20, color='white', font=self.standard_font_sizes[18])
 
-			# finalize display
-			self.apply_display_fade()
+			# call app draw method
+			self.draw()
+
+			# flip display
 			self.flip()
 
 			# apply music fade
@@ -360,6 +373,9 @@ class App:
 
 		except Exception as e:
 			Log.error(e)
+
+	def draw(self):
+		""" Stub function for app draw method. """
 
 	def handle_events(self):
 		""" Handle pygame events and messages from worker. """
@@ -628,23 +644,36 @@ class App:
 
 		# load animations
 		for animation_name in list(d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))):
-			animation = Animation()
+			animation = Animation(name=animation_name)
+			animation_names = []
 			files = sorted(f for f in os.listdir(os.path.join(path, animation_name)) if os.path.splitext(f)[1].lower() in image_types)
-			for filename in files:
+			for i, filename in enumerate(files):
 				image = self.load_image(os.path.join(path, animation_name, filename))
 				if image is not None:
+					animation.frames.append(image)
 					name = os.path.splitext(filename)[0].lower()
-					animation.frames.append(AnimationFrame(name, image))
+					animation_names.append(name)
 			if len(animation.frames) == 0:
 				continue
 			# define sequences
-			for i, frame in enumerate(animation.frames):
-				if '_' in frame.name:
-					name, _ = frame.name.rsplit('_', 1)
-					animation.sequences.setdefault(name, [])
-					animation.sequences[name].append(i)
-				else:
-					animation.sequences[frame.name] = [i]
+			sequence_files = {}
+			for i, name in enumerate(animation_names):
+				if '_' not in name:
+					animation.sequences[name] = [i]
+				else:		# parse _ for sequence number
+					sequence_name, sequence_number = name.rsplit('_', 1)
+					sequence_files.setdefault(sequence_name, {})
+					try:
+						sequence_files[sequence_name][int(sequence_number)] = i
+					except:		# file ends with non-numeric field
+						animation.sequences[name] = [i]
+
+			# once all sequences are loaded, sort by names and store in animation.sequences
+			for sequence_name, files in sequence_files.items():
+				sequence_numbers = sorted(files.keys())
+				animation.sequences[sequence_name] = list(files[s] for s in sequence_numbers)
+
+			# add animation to animations library
 			animations[animation_name.lower()] = animation
 
 		return images, animations
@@ -667,7 +696,7 @@ class App:
 	def get_image(self, image: str|Surface) -> Surface|None:
 		""" Finds an image by name or path. """
 
-		if isinstance(image, Surface):
+		if image is None or isinstance(image, Surface):
 			return image
 		if isinstance(image, str) is False:
 			Log.error(f'Could not identify image of type {type(image)}')
@@ -678,18 +707,30 @@ class App:
 		i = i or self.load_image(image)
 		return i
 
-	def blit(self, image: str|Surface, x: int|float, y: int|float, position: str=None, scale: int|float|tuple=None, area: Rect=None, flags: int=None, dest: Surface=None):
+	def get_animation(self, animation: str|Animation) -> Animation|None:
+		""" Finds an animation by name or path. """
+
+		if animation is None or isinstance(animation, Animation):
+			return animation
+		if isinstance(animation, str) is False:
+			Log.error(f'Could not identify nimation of type {type(animation)}')
+			return None
+		# in order: check mode image library, then app image library
+		a = self.mode.animations.get(animation) if self.mode is not None else None
+		a = a or self.animations.get(animation)
+		return a
+
+	def blit(self, image: str|Surface, x: int|float, y: int|float, position: SpritePosition=None, scale: int|float|tuple=None, area: Rect=None, flags: int=None, dest: Surface=None):
 		""" Blits image to dest at coordinates.
 				Optionally scale by factor or to (width, height).
 				Optionally specify an area of the source image (post-scaling).
-				Position can be topleft (default), center, or bottom.
 				Surfaces that have an alpha channel are blitted with pygame.BLEND_ALPHA_SDL2. """
 
 		i = self.get_image(image)
 		if i is None:
 			Log.error(f'Could not get image of type {image}')
 			return
-		flags=flags or 0
+		flags = flags or 0
 		dest = dest or self.window
 		if i.get_alpha() is not None:
 			flags = flags | pygame.BLEND_ALPHA_SDL2
@@ -699,10 +740,10 @@ class App:
 					i = self.scale_image(i, scale[0], scale[1])
 				else:
 					i = self.scale_image(i, scale)
-			if position == 'center':
+			if position == SpritePosition.Center:
 				size = i.get_size()
 				x -= size[0] / 2; y -= size[1] / 2
-			elif position == 'bottom':
+			elif position == SpritePosition.Bottom:
 				size = i.get_size()
 				x -= size[0] / 2; y -= size[1]
 			dest.blit(i, (x, y), area=area, special_flags=flags)
@@ -716,8 +757,10 @@ class App:
 		if i is None:
 			Log.error(f'Could not get image of type {image}')
 			return None
-		y_scale = y_scale or x_scale
-		return pygame.transform.scale(i, (int(x_scale), int(y_scale)))
+		x, y = image.get_size()
+		x = x * x_scale
+		y = y * (y_scale or x_scale)
+		return pygame.transform.smoothscale(i, (x, y))
 
 	def flip_image(self, image: str|Surface, horizontal: bool=False, vertical: bool=False) -> Surface|None:
 		""" Flips image. """
@@ -839,7 +882,7 @@ class App:
 	def get_sound(self, sound: str|Sound):
 		""" Finds a sound by name. """
 
-		if isinstance(sound, Sound):
+		if sound is None or isinstance(sound, Sound):
 			return sound
 		if isinstance(sound, str) is False:
 			Log.error(f'Could not identify sound of type {type(sound)}')
@@ -924,7 +967,7 @@ class App:
 	def get_music(self, music_name: str):
 		""" Finds music by name. """
 
-		if isinstance(music_name, str) is False:
+		if music_name is None or isinstance(music_name, str) is False:
 			Log.error(f'Could not identify music of type {type(music_name)}')
 			return None
 

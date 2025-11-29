@@ -17,7 +17,11 @@
     - [Example Mode](#example-mode)
     - [Mode Class Fields and Methods](#mode-class-fields-and-methods)
     - [Controls](#controls)
+      - [Control Class Fields and Methods](#control-class-fields-and-methods)
+      - [Notable Control Subclasses](#notable-control-subclasses)
     - [Submodes](#submodes)
+  - [Animation Libraries and Sprites](#animation-libraries-and-sprites)
+    - [Sprite Class Fields and Methods](#sprite-class-fields-and-methods)
   - [Worker Class Reference](#worker-class-reference)
     - [Example Worker](#example-worker)
     - [Worker Class Fields and Methods](#worker-class-fields-and-methods)
@@ -109,6 +113,7 @@ get_image(image_name)   # finds image by checking mode library, app library, and
 create_surface(x, y, color='black', alpha_blend=False, flags=0)
 copy_surface(surface)
 blit(image, x, y, position=None, scale=None, area=None, flags=None, dest=None)
+  # scale = float for propoprtional scale, or two-tuple for per-axis scaling
 scale_image(image, x_scale, y_scale=None) # default=proportional; y=per-axis
 flip_image(image, horizontal=False, vertical=False)
 rotate_image(image, degrees)
@@ -254,28 +259,40 @@ process()                          # stub method for mode process
 draw()                             # stub method for mode draw
 exit()                             # stub method for mode exit
 mode_timer: int                    # draw cycles since mode.enter()
-add_control(control: Control)
+add_control(control: Control) -> Control
+get_control(name: str) -> Control  # returns first control with this name
 remove_control(control: Control)
 remove_controls()	
+show_controls: bool                # enables controls to be shown or hidden
 images: dict                       # images library for mode, same as app.images
 animations: dict                   # animations library for mode, same as app.animations
 sounds: dict                       # sounds library for mode, same as app.sounds
 sprites: list					   # mode sprites collection
-add_sprite(sprite: Sprite)
+add_sprite(sprite: Sprite) -> Sprite
+get_sprite(name: str) -> Sprite    # returns first sprite with this name
 remove_sprite(sprite: Sprite)
 render_sprites(auto_animate=True)  # renders sprites - not called automatically
 ```
 	
 ### Controls
 
-The Control base class is a placeholder for control-specific functionality:
+The Control base class is a placeholder for control-specific functionality.
+
+#### Control Class Fields and Methods
 
 ```
 Control(x, y, width, height, click=None, hold=None, release=None, name=None,
     parameters=None)
+    
+name: str                          # control name
+visible: bool                      # whether control is drawn and can receive input
+enabled: bool                      # whether control can receive input
+click()                            # stub method for mode process
+draw()                             # stub method for mode draw
+exit()                             # stub method for mode exit
 ```
 
-Notable control subclasses:
+#### Notable Control Subclasses
 
 ```
 LabeledControl(caption, control, offset=None, font=None,
@@ -332,6 +349,51 @@ A few specific details about submode methods:
 * `click_{submode}`, `process_{submode}`, and `draw_{submode}` are called **instead of** the mode method. Since the submode method can call the corresponding mode method, this logic provides greater control over if and when that happens - e.g., the submode can draw before, after, and/or instead of the `mode.draw` method.
 * When App switches away from a mode, `exit_{submode}` is called **as well as** the `mode.exit` method. This logic fulfills the expectation that the selection of a mode will always begin with `mode.enter` and always end with `mode.exit`, while also providing a current submode an opportunity to perform cleanup when the mode exits. `exit_{submode}` is also called when switching from the submode to a different submode during the presentation of the mode.
 * Any methods can be omitted for a submode. However, a submode only exists if at least one submode method is implemented. Setting a submode with no submode methods produces a Log.error in case of typographical errors.
+
+## Animation Libraries and Sprites
+
+An app can include an `images` folder, and a mode can includes a `Mode_name/images` folder. For itself and each mode, the app will automatically load an `.images` collection. The app will also create an `.animations` collection containing an Animation object for each subfolder. Animations includes a `.frames` array as all images in the folder, organized sequentially by filename. For any files indexed as `{sequence_name}_{number}`, the app will create a sequence as a list of indices of `animation.frames` that correspond to the named sequence. For example:
+```
+   ./images/
+            background.jpg          # access as images['background']
+            player/
+                up_1.jpg, ...       # access as sequences['up']
+                idle.jpg            # access as sequences['idle']
+```
+
+A sprite is an instance of a static image or animation at a given x/y coordinate. Calling `mode.add_sprite(sprite)` binds a sprite to the app and adds it to the mode.sprites array. During `draw()`, a mode can call `render_sprites()` to render all sprites. Each sprite can have a `process()` method that is automatically called during `mode.process()`.
+
+The location of a sprite on the screen for a given x/y coordinate is determined by mode.sprite_positions: SpritePosition.TopLeft, SpritePosition.Center, or SpritePosition.Bottom. The drawing order of sprites is also determined by mode.sprite_positions. can be overridden by specifying sprite.z. Sprites are drawn in reverse order of z (1 = last sprite drawn), and all sprites without a .z value are drawn at z=100.
+
+A sprite can be created with or assigned a `.static_image` to be drawn when rendered. If `static_image` is not set, a sprite that has an `.animation` will draw frames from that animation library. If a sprite is created with `Sprite(animation: str)`, the app will try to bind the sprite to the animation. Secondarily, if a sprite is create with `Sprite(name: str)`, the app will both assign the given name to the sprite and try to bind the sprite to the animation with the same name.
+
+Calling `set_sequence(sequence_name)` causes the sprite to be rendered with the named sequence of frames. Calling `sprite.animate()` increments the sequence frame. Alternatively, setting `sprite.auto_animate_rate` to a nonzero integer causes the spirte to be incremented along the sequence before it is rendered. The integer indicates the number of renderings between increments - i.e., `.auto_animate_rate=1` causes the sequence to increment every rendering.
+
+Calling `.set_image()` chooses the static image or the current image from the animation, applies sprite effects, sets the `.width` and `.height` fields, and finally sets `sprite.image` and directly returns the image.
+
+### Sprite Class Fields and Methods
+
+```
+name: str|None
+x, y: int                            # screen coordinates, based on mode.sprite_positions
+z: int|None                          # fixed Z-order (defaults to 100)
+static_image: str|Surface|None       # static image; overrides animation
+animation: str|Animation|None        # animation library for sprite
+set_sequence(sequence_name: str, auto_animate_rate: int=None)
+sequence_name: str|None              # name of current sequence
+sequence_frame: int|None             # number of current frame
+animate()                            # increment sequence frame
+auto_animate_rate: int|None          # automatically animates each (n) renderings
+set_image(): Surface|None            # sets .image and also returns image
+image                                # current image, set by set_image()
+width, height                        # current image size, set by set_image()
+scale: float|tuple|None              # float=proporational scale factor; tuple=per-axis
+flip_x: bool                         # flips horizontally
+flip_y: bool                         # flips vertically
+rotate: float|None                   # rotates CCW by given number of degrees
+hue_shift: float|None                # perform hue rotation (0-100)
+process()                            # stub method for sprite process
+```
 
 ## Worker Class Reference
 

@@ -30,11 +30,11 @@ class Robot(Sprite):
 			Robot image source: https://commons.wikimedia.org/wiki/File:Koronba_pixel_art.png """
 
 	def __init__(self, app, mode):
-		super().__init__(app.animations['robot'])
+		super().__init__(animation=app.get_animation('robot'))
 		self.app = app
 		self.set_sequence('standing')
-		self.x = random.randint(0, self.app.screen_width)
-		self.y = random.randint(0, self.app.screen_height)
+		self.x = random.randint(0, app.screen_width)
+		self.y = random.randint(0, app.screen_height)
 		mode.add_sprite(self)
 
 	def process(self):
@@ -49,8 +49,7 @@ class Player(Sprite):
 	""" Player class. Subclassed from Sprite for convenience. """
 
 	def __init__(self, app, mode):
-		super().__init__(app.animations['player'])
-		self.app = app
+		super().__init__(animation=app.get_animation('player'))
 		self.x = app.screen_center
 		self.y = app.screen_middle
 		mode.add_sprite(self)
@@ -64,10 +63,7 @@ class Player(Sprite):
 			if direction not in self.app.held_keys:
 				continue
 			moving = True
-			if self.sequence == direction:
-				self.animate()
-			else:
-				self.set_sequence(direction)
+			self.set_sequence(direction, reset_sequence_frame=False)
 			if direction == 'up':
 				self.y = max(10, self.y - speed)
 			elif direction == 'down':
@@ -76,7 +72,9 @@ class Player(Sprite):
 				self.x = max(50, self.x - speed)
 			elif direction == 'right':
 				self.x = min(self.app.screen_width - 50, self.x + speed)
-		if moving is False:
+		if moving is True:
+			self.animate()
+		else:
 			self.set_sequence('standing')
 
 class ImagesApp(App):
@@ -101,10 +99,7 @@ class ImagesMode(Mode):
 	def process(self):
 		""" Process method for Images mode. """
 
-		# process bubbles
-		for s in self.sprites:									# process robots and player
-			s.process()
-
+		# process bubbles  (sprites are automatically processed)
 		for b in self.bubbles:
 			if b.process():
 				self.bubbles.remove(b)
