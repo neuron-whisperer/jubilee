@@ -1,6 +1,6 @@
 """ Sound Jubilee app. Demonstrates sound and music. """
 
-import os, sys
+import os
 from jubilee import App, Mode
 from jubilee.controls import Button
 
@@ -61,11 +61,11 @@ class SoundMode(Mode):
 	def draw(self):
 		""" Draw method for Sound_Music mode. """
 
-		self.app.draw_text(f'Music: {self.music[self.music_index]}', 10, 10, alignment='Left')
+		self.app.draw_text(f'Music: {self.music[self.music_index]}', 10, 10)
 		status = 'Playing' if self.app.is_music_playing() else 'Stopped'
-		self.app.draw_text(f'Status: {status}', 10, 30, alignment='Left')
+		self.app.draw_text(f'Status: {status}', 10, 30)
 		sounds = list(self.app.sounds.keys())
-		self.app.draw_text(f'Sound: {sounds[self.sound_index]}', 10, 120, alignment='Left')
+		self.app.draw_text(f'Sound: {sounds[self.sound_index]}', 10, 120)
 
 if __name__ == '__main__':
 	SoundApp().run()

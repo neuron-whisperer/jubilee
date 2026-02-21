@@ -1,6 +1,6 @@
 """ Misc classes and functions. """
 
-import datetime, inspect, json, logging, os, shutil, socket, time
+import datetime, hmac, inspect, json, logging, os, shutil, socket, sys, tempfile, time
 from enum import Enum
 from hashlib import sha256
 import __main__, random_user_agent.params, random_user_agent.user_agent, requests
@@ -35,16 +35,28 @@ class Config:
 
 	@classmethod
 	def save(cls, config: dict=None, filename: str=None):
-		""" Saves config dict.
+		""" Saves config dict atomically to prevent corruption on power loss.
 
 				Args:
+					config:				Config dict to save, or empty dict if None.
 					filename:			Filename, or default filename (config.txt).
-					defaults:			Dict of default values to be used for any not indicated in file.
 		"""
 
 		filename = filename or cls.get_filename()
-		with open(filename, 'wt', encoding='UTF-8') as f:
-			f.write(json.dumps(config or {}))
+		dir_name = os.path.dirname(os.path.abspath(filename))
+		fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+		try:
+			with os.fdopen(fd, 'wt', encoding='UTF-8') as f:
+				f.write(json.dumps(config or {}))
+				f.flush()
+				os.fsync(f.fileno())
+			os.replace(tmp_path, filename)
+		except Exception:
+			try:
+				os.unlink(tmp_path)
+			except OSError:
+				pass
+			raise
 
 	@staticmethod
 	def get_filename() -> str:
@@ -131,37 +143,26 @@ class Log:
 			param1:							Class name.
 			param2:							Function name.
 		"""
-		frame = inspect.currentframe()
 		try:
-			for _ in range(stack_depth):
-				if frame is not None:
-					frame = frame.f_back
-			if frame is not None:
-				function_name = frame.f_code.co_name
-				class_name = ''
-				if 'self' in frame.f_locals:
-					class_name = frame.f_locals['self'].__class__.__name__
-				elif 'cls' in frame.f_locals:
-					class_name = frame.f_locals['cls'].__name__
-				# check if this is a static method of a class
-				elif 'self' not in frame.f_locals and 'cls' not in frame.f_locals:
-					# infer from module and qualname
-					if hasattr(frame.f_code, 'co_qualname'):
-						qualname = frame.f_code.co_qualname
-						if '.' in qualname:
-							class_name = qualname.split('.')[0]
-				# if still no class name, use module name
-				if not class_name:
-					module = inspect.getmodule(frame)
-					if module:
-						class_name = module.__name__.split('.')[-1]
-					else:
-						class_name = None
-				return class_name, function_name
+			frame = sys._getframe(stack_depth)
+		except ValueError:
+			return None, None
+		try:
+			function_name = frame.f_code.co_name
+			class_name = ''
+			if 'self' in frame.f_locals:
+				class_name = frame.f_locals['self'].__class__.__name__
+			elif 'cls' in frame.f_locals:
+				class_name = frame.f_locals['cls'].__name__
+			elif hasattr(frame.f_code, 'co_qualname'):
+				qualname = frame.f_code.co_qualname
+				if '.' in qualname:
+					class_name = qualname.split('.')[0]
+			if not class_name:
+				class_name = frame.f_globals.get('__name__', '').rsplit('.', 1)[-1] or None
+			return class_name, function_name
 		finally:
 			del frame
-
-		return None, None
 
 	@classmethod
 	def reset(cls, filename: str=None):
@@ -328,20 +329,23 @@ class Color(Enum):
 	YELLOW = (238, 210, 2)
 	BROWN = (101, 67, 33)
 
+_color_lookup = {c.name.lower().replace('_', ' '): c.value for c in Color}
+_color_lookup.update({c.name.lower(): c.value for c in Color})
+
 class Misc:
 	""" Misc class for misc functions. """
 
 	key_names = ('backspace', 'tab', 'return', 'escape', 'space', '!', '"', '#', '$', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?', '@', '[', '\\', ']', '^', '_', '`', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'delete', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'insert' ,'home', 'end', 'right', 'left', 'up', 'down', 'left ctrl', 'left shift', 'right ctrl', 'right shift')
-	key_symbols = {k: k for k in 'abcdefghijklmnopqrstuvwxyz`1234567890-=~!@#$%^&*()_+[]\\{}|;\':",./<>?'}
+	key_symbols = {k: k for k in 'abcdefghijklmnopqrstuvwxyz`1234567890-=[]\\;\',./'}
 	key_symbols['space'] = ' '
 	key_shift_symbols = {'a': 'A', 'b': 'B', 'c': 'C', 'd': 'D', 'e': 'E', 'f': 'F', 'g': 'G', 'h': 'H', 'i': 'I', 'j': 'J', 'k': 'K', 'l': 'L', 'm': 'M', 'n': 'N', 'o': 'O', 'p': 'P', 'q': 'Q', 'r': 'R', 's': 'S', 't': 'T', 'u': 'U', 'v': 'V', 'w': 'W', 'x': 'X', 'y': 'Y', 'z': 'Z', '1': '!', '2': '@', '3': '#', '4': '$', '5': '%', '6': '^', '7': '&', '8': '*', '9': '(', '0': ')', '`': '~', '-': '_', '=': '+', '[': '{', ']': '}', '\\': '|', ';': ':', '\'': '"', ',': '<', '.': '>', '/': '?'}
 
-	null_date = datetime.datetime.utcfromtimestamp(0)
+	null_date = datetime.datetime(1970, 1, 1)
 	user_agent = None
 
 	@staticmethod
 	def choose_user_agent():
-		""" Chooses a pouplar user agent. """
+		""" Chooses a popular user agent. """
 
 		p=[random_user_agent.params.Popularity.POPULAR.value]
 		return random_user_agent.user_agent.UserAgent(popularity=p).get_random_user_agent()
@@ -357,7 +361,7 @@ class Misc:
 	@classmethod
 	def http_request(cls, url: str, method: str=None, headers: dict=None,
 		data: dict=None, password: str=None, timeout: int=30,
-		randomize_user_agent: bool=False, timestamp: str=None) -> (int|None, str):
+		randomize_user_agent: bool=False, timestamp: int=None):
 		""" Sends an HTTP GET or POST request via requests.
 
 				Args:
@@ -371,14 +375,14 @@ class Misc:
 					timestamp:		Optional timestamp to append to URL before hashing.
 
 				Returns:
-					arg1:					HTTP status code, or None on failure.
-					arg2:					Signed URL, or error message on failure.
+					arg1:					HTTP status code (int), or None on failure.
+					arg2:					Response object on success, or error message string on failure.
 		"""
 
 		if password is not None:
 			result, message = cls.sign_request(url, password, timestamp)
 			if result is False:
-				return (False, f'Error signing request: {message}')
+				return (None, f'Error signing request: {message}')
 			url = message
 		headers = headers or {}
 		if cls.user_agent is None:
@@ -388,11 +392,12 @@ class Misc:
 		method = 'POST' if data is not None else (method or 'GET')
 		try:
 			if method.upper() == 'GET':
-				headers = {'User-Agent': user_agent}
+				headers.setdefault('User-Agent', user_agent)
 				response = requests.get(url, headers=headers, timeout=timeout)
 				status_code = response.status_code
 			else:
-				headers = {'User-Agent': user_agent, 'Content-type': 'application/json'}
+				headers.setdefault('User-Agent', user_agent)
+				headers.setdefault('Content-type', 'application/json')
 				response = requests.post(url, headers=headers, json=data, timeout=timeout)
 				status_code = response.status_code
 		except Exception as e:
@@ -419,8 +424,7 @@ class Misc:
 			return (False, 'Password not specified')
 		timestamp = int(time.time()) if timestamp is None else int(timestamp)
 		url = f'{url}&ts={timestamp}'
-		request = password + url
-		signature = sha256(request.encode('utf-8')).hexdigest()
+		signature = hmac.new(password.encode('utf-8'), url.encode('utf-8'), sha256).hexdigest()
 		return (True, url + '&hash=' + signature)
 
 	@classmethod
@@ -435,7 +439,7 @@ class Misc:
 		with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
 			s.settimeout(0)
 			try:
-				s.connect(('10.254.254.254', 1))			# loopback address
+				s.connect(('10.254.254.254', 1))			# unreachable IP to determine local interface address
 				return (True, s.getsockname()[0])
 			except Exception as e:
 				return (False, f'Exception: {e}')
@@ -477,12 +481,12 @@ class Misc:
 		if isinstance(color, tuple):
 			color_tuple = color
 		elif isinstance(color, str):
-			matches = list(c for c in Color if str(c).replace('Color.', '').lower() == color.lower())
-			if len(matches) != 1:
+			color_tuple = _color_lookup.get(color.lower())
+			if color_tuple is None:
 				return None
-			color_tuple = matches[0].value if len(matches) == 1 else Color.WHITE.value
 		else:
-			if color not in dir(Color):
+			try:
+				color_tuple = Color[color].value
+			except KeyError:
 				return None
-			color_tuple = Color[color].value
 		return tuple(int(c * color_scale) for c in color_tuple) if color_scale else color_tuple

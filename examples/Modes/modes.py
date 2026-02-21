@@ -1,9 +1,7 @@
 """ Modes Jubilee app. """
 
-import sys
 from jubilee import App, Mode
 from jubilee.controls import Button
-from jubilee.misc import Log
 
 class ModesApp(App):
 	""" Modes app. """

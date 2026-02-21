@@ -73,9 +73,13 @@ set_mode(mode, mode_parameters=None)      # mode = name or Mode object
 mode: Mode                                # current Mode
 send_message(message, worker_name=None)   # str or dict; default=send to first worker
 	# messages are sent as dicts - a string will be sent as {'action': message}
+process_message(message, sender=None)    # stub method for handling worker messages
+process()                                 # stub method for app process
+draw()                                    # stub method for app draw
 reboot()                                  # device reboot
 shut_down()                               # device shutdown
 exit(code = 0)                            # app exit function
+check_running_process(process_name=None) -> bool  # checks for duplicate process
 ```
 
 ### Drawing
@@ -87,8 +91,8 @@ Fonts can be a pygame.font.SysFont, a font name, or None for default font.
 fill_screen(color='white')
 fill_color(color='white', dest=None)
 fill_static(dest=None)                                        # fill with white noise
-draw_text(text, x, y, color=None, font=None, alignment='left', dest=None)
-center_text(text, y=None, color=None, font=None, dest=None)   # default=screen center
+draw_text(text, x, y, color='white', font=None, alignment='left', dest=None)
+center_text(text, y=None, color='white', font=None, dest=None)   # default=screen center
 get_text_size(text, font=None) -> (int, int)
 draw_pixel(x, y, color='white', dest=None)
 draw_line(x1, y1, x2, y2, width=1, color='white', dest=None)
@@ -97,7 +101,7 @@ fill_rect(left, top, width, height, color='white', dest=None)
 draw_polygon(coordinates, width=1, color='white', dest=None)  # list of coord tuples
 draw_circle(x, y, radius=1, width=1, color='white', dest=None)
 fill_circle(x, y, radius=1, color='white', dest=None)
-draw_arc(x, y, width, height, start_angle, stop_angle, line_width=1,
+draw_arc(x, y, arc_width, arc_height, start_angle, stop_angle, line_width=1,
    color='white', dest=None)
 create_rect(width, height)			                          # creates pygame.Rect
 ```
@@ -108,19 +112,20 @@ create_rect(width, height)			                          # creates pygame.Rect
 images: dict                              # indexed by filename without extension
 animations: dict                          # contains .frames and .sequences
 load_images(path) -> (dict, dict)         # loads images and animations as libraries
-load_image(path)                          # loads an individual image at path 
+load_image(filename, alpha_blend=False)    # loads an individual image at path
 get_image(image_name)   # finds image by checking mode library, app library, and path
-create_surface(x, y, color='black', alpha_blend=False, flags=0)
+get_animation(animation) # finds animation by checking mode library, then app library
+create_surface(x, y, color='black', alpha_blend=False, flags=None)
 copy_surface(surface)
 blit(image, x, y, position=None, scale=None, area=None, flags=None, dest=None)
-  # scale = float for propoprtional scale, or two-tuple for per-axis scaling
+  # scale = float for proportional scale, or two-tuple for per-axis scaling
 scale_image(image, x_scale, y_scale=None) # default=proportional; y=per-axis
 flip_image(image, horizontal=False, vertical=False)
 rotate_image(image, degrees)
 shift_image_hue(image, delta)             # delta = value from 0 to 360
 set_popover(message, steps=None)          # displays popover message for given steps
 start_display_fade(steps=None, color='black', end_mode=None, end_parameters=None)
-  # positive duration fades out; negative duration fades in and then calls set_mode()
+  # positive steps = fade in from solid; negative steps = fade out to solid
   # optionally, switch to mode with parameters when fade concludes
 ```
 
@@ -130,14 +135,16 @@ Loops are specified as 0 (play once) or -1 (repeat forever).
 
 ```
 sounds: dict        				       # indexed by filename without extension
+sound_volume: int                          # current sound volume (0-100, default 100)
+music_volume: int                          # current music volume (0-100, default 100)
 load_sounds(path) -> dict                  # loads sounds as library
-load_sound(path)                           # loads an individual sound at path 
+load_sound(sound)                          # loads an individual sound 
 get_sound(sound_name)	# finds sound by checking mode library, app library, and path
 set_volume(volume, sound_volume=None)      # default=sound and music volume
 set_sound_retainer(enable=True) 	       # loops a quiet noise to keep sound active
 play_sound(sound, loops=None, volume=None)
-play_sound_on_channel(sound, loops=None, volume=None)
-    # plays sound on dedicated channel; use channel for .stop(), .get_busy(), etc.	
+play_sound_on_channel(sound, loops=None, volume=None) -> Channel|None
+    # plays sound on dedicated channel; use channel for .stop(), .get_busy(), etc.
 ```
 
 ### Music
@@ -154,10 +161,10 @@ start_music_fade(steps)
 ### Pointer (Touch or Mouse) Input
 
 ```
-pointer: Pointer				# interface to pointer object (mouse or touch)
-pointer.x, pointer.y: int		# current coordinates
-pointer.down: bool				# True during first frame of touch or click
-pointer.held: bool				# True throughout touch or click
+pointer: PointerInterface		# interface to pointer object (mouse or touch)
+pointer.x, pointer.y: int|None	# current coordinates (None when not pressed)
+pointer.down: bool				# True while pointer is pressed
+pointer.held: bool				# True if pointer was also pressed last frame
 on_click(x, y)     				# runs click handler function with coordinate
 ```
 
@@ -177,14 +184,14 @@ stop_keyboard_buffering()		# stops buffering keyboard input
 
 ### App State
 
-The App stores an `app_state` dict for app-wide data that should be available to all Modes. The App automatically saves the state dict at exit (in `app_state.txt`) and reloads it at startup to persist the state of the app. Because the app state uses `json.dumps` and `json.loads`, any such data must be JSON-serializable. If the App does not find an `app_state.txt` file at startup, it will look for an `app_state_start.txt` file and read it into an initial app state.
+The App stores an `app_state` dict for app-wide data that should be available to all Modes. App state is saved incrementally via `set_app_state()` during normal operation and reloaded at startup to persist the state of the app. Because the app state uses `json.dumps` and `json.loads`, any such data must be JSON-serializable. If the App does not find an `app_state.txt` file at startup, it will look for an `app_state_start.txt` file and read it into an initial app state.
 
 ```
 app_state: dict
 persist_app_state: bool         # whether to save and load app_state automatically
 load_app_state()                # loads app state
 set_app_state(key, value)       # saves parameter in app state
-save_app_state()				# saves script state
+save_app_state()				# saves app state to file
 ```
 
 ### Scripting
@@ -212,10 +219,10 @@ advance_scene(delta=1)              # advance scene number relative to current s
 
 ```
 create_font(name='Arial', size=12)	# create font from system name or path
-fonts = {'freeserif': ... }         # array of fonts by name in default size
+font_list: list                     # list of available system font names
 standard_font: Font					# standard (default) Font object
 standard_font_name: str				# name of standard font
-standard_font_sizes: dict			# standard Font objects indexed by sizes (4-64)
+standard_font_sizes: dict			# standard Font objects indexed by size (lazy-loaded)
 change_font()						# cycles to next font in font list as current font
 ```
 
@@ -252,25 +259,30 @@ class Example_Mode(Mode):
 ```
 app: App
 name: str
-init()                             # stub method for mode initialization 
-enter(mode_parameters: dict)       # stub method for mode entry
+background_color: str              # screen fill color for on_draw() (default 'black')
+init()                             # stub method for mode initialization
+enter(mode_parameters: dict=None)   # stub method for mode entry
 click(x: int|float, y: int|float)  # stub method for mode click event handler
+hold()                             # stub method for mode hold (each frame while pressed)
+release()                          # stub method for mode release
 process()                          # stub method for mode process
 draw()                             # stub method for mode draw
 exit()                             # stub method for mode exit
-mode_timer: int                    # draw cycles since mode.enter()
+mode_timer: int|None               # process cycles since mode.enter() (None before enter)
 add_control(control: Control) -> Control
-get_control(name: str) -> Control  # returns first control with this name
-remove_control(control: Control)
+get_control(name: str) -> Control|None  # returns first control with this name
+remove_control(control: Control|str)  # accepts control object or caption string
 remove_controls()	
 show_controls: bool                # enables controls to be shown or hidden
-images: dict                       # images library for mode, same as app.images
-animations: dict                   # animations library for mode, same as app.animations
-sounds: dict                       # sounds library for mode, same as app.sounds
+images: dict                       # mode-specific images library (loaded from Mode_name/images/)
+animations: dict                   # mode-specific animations library
+sounds: dict                       # mode-specific sounds library (loaded from Mode_name/sounds/)
+sprite_positions: SpritePosition   # positioning mode for sprites (default SpritePosition.Bottom)
 sprites: list					   # mode sprites collection
 add_sprite(sprite: Sprite) -> Sprite
-get_sprite(name: str) -> Sprite    # returns first sprite with this name
+get_sprite(name: str) -> Sprite|None  # returns first sprite with this name
 remove_sprite(sprite: Sprite)
+remove_sprites()                   # removes all sprites from mode
 render_sprites(auto_animate=True)  # renders sprites - not called automatically
 ```
 	
@@ -287,9 +299,7 @@ Control(x, y, width, height, click=None, hold=None, release=None, name=None,
 name: str                          # control name
 visible: bool                      # whether control is drawn and can receive input
 enabled: bool                      # whether control can receive input
-click()                            # stub method for mode process
-draw()                             # stub method for mode draw
-exit()                             # stub method for mode exit
+draw()                             # stub method for control draw
 ```
 
 #### Notable Control Subclasses
@@ -313,9 +323,9 @@ HoldButton(caption, x, y, width, height, hold_color='red',
     name=None, parameters=None)
     """ Hold button user control that calls .click() after a hold period. """
     
-CheckButton(x, y, width, height, checked=False, 
+CheckButton(x, y, width, height,
     box_color='white', check_color='red', check_width=5, background_color=None,
-    click=None, hold=None, release=None, name=None, parameters=None)
+    checked=False, click=None, hold=None, release=None, name=None, parameters=None)
 	 """ Check button user control that toggles self.checked. """
     
 ToggleButton(x, y, width, height, toggled=False,
@@ -332,27 +342,54 @@ SelectButton(x, y, width, height,
         .value = values[selected_index]; otherwise, .value = None. """
 ```
 
+#### Programmatic State Control
+
+```
+CheckButton.set_checked(checked: bool, do_click: bool=False)
+ToggleButton.set_toggled(toggled: bool, do_click: bool=False)
+SelectButton.set_selected_item(item, do_click: bool=False)
+SelectButton.set_selected_index(index: int, do_click: bool=False)
+SelectButton.set_items(items: list, values: list=None, reset_to_first: bool=True)
+LabeledControl.set_caption(caption: str)
+```
+
 ### Submodes
 
-When a submode is set for a Mode, the stub methods for the Mode will invoke corresponding `[method_name]_[submode_name]` methods if they exist. For example, a submode called `main_menu` can be created by adding at least one of the following methods to a Mode: `init_main_menu`, `enter_main_menu`, `click_main_menu`, `draw_main_menu`, `process_main_menu`, and/or `exit_main_menu`.
+When a submode is set for a Mode, the stub methods for the Mode will invoke corresponding `[method_name]_[submode_name]` methods if they exist. For example, a submode called `main_menu` can be created by adding at least one of the following methods to a Mode: `enter_main_menu`, `click_main_menu`, `hold_main_menu`, `release_main_menu`, `process_main_menu`, `draw_main_menu`, and/or `exit_main_menu`.
 
 ```
 submodes: list					               # submode names, determined by inspection
 submode: str   						           # current submode
-submode_timer: int     					       # draw cycles since mode.enter()
-set_submode(name, mode_parameters: dict=None)  # also exits previous submode
+submode_timer: int|None					       # process cycles since set_submode() (None when no submode)
+set_submode(name: str|None, mode_parameters: dict=None)  # None exits current submode
 ```
 
 A few specific details about submode methods:
 
 * `enter_{submode}` is called during `set_submode`, not during or in place of `mode.enter`. Of course, `mode.enter` will usually call `mode.set_submode` to select the initial submode, which results in `enter_{submode}` being called. `enter_{submode}` is also called while changing to the submode at a later time during the presentation of the mode.
-* `click_{submode}`, `process_{submode}`, and `draw_{submode}` are called **instead of** the mode method. Since the submode method can call the corresponding mode method, this logic provides greater control over if and when that happens - e.g., the submode can draw before, after, and/or instead of the `mode.draw` method.
+* `click_{submode}`, `hold_{submode}`, `release_{submode}`, `process_{submode}`, and `draw_{submode}` are called **instead of** the mode method. Since the submode method can call the corresponding mode method, this logic provides greater control over if and when that happens - e.g., the submode can draw before, after, and/or instead of the `mode.draw` method.
 * When App switches away from a mode, `exit_{submode}` is called **as well as** the `mode.exit` method. This logic fulfills the expectation that the selection of a mode will always begin with `mode.enter` and always end with `mode.exit`, while also providing a current submode an opportunity to perform cleanup when the mode exits. `exit_{submode}` is also called when switching from the submode to a different submode during the presentation of the mode.
 * Any methods can be omitted for a submode. However, a submode only exists if at least one submode method is implemented. Setting a submode with no submode methods produces a Log.error in case of typographical errors.
 
+### Built-in Modes
+
+Jubilee provides two built-in Mode subclasses that can be added to an App via `add_mode()`:
+
+```
+LogMode
+    """ Displays log entries with CPU load/temperature graphs and page navigation.
+        Mode name: 'Log'. Pass {'previous_mode': 'ModeName'} as mode_parameters
+        to enable the Back button. """
+
+ShutDownMode
+    """ Displays a shutdown confirmation screen with a hold-to-confirm button.
+        Mode name: 'Shut Down'. Pass {'previous_mode': 'ModeName'} as mode_parameters
+        to enable the Cancel button. """
+```
+
 ## Animation Libraries and Sprites
 
-An app can include an `images` folder, and a mode can includes a `Mode_name/images` folder. For itself and each mode, the app will automatically load an `.images` collection. The app will also create an `.animations` collection containing an Animation object for each subfolder. Animations includes a `.frames` array as all images in the folder, organized sequentially by filename. For any files indexed as `{sequence_name}_{number}`, the app will create a sequence as a list of indices of `animation.frames` that correspond to the named sequence. For example:
+An app can include an `images` folder, and a mode can include a `Mode_name/images` folder. For itself and each mode, the app will automatically load an `.images` collection. The app will also create an `.animations` collection containing an Animation object for each subfolder. Each Animation includes a `.frames` array of all images in the folder, organized sequentially by filename. For any files indexed as `{sequence_name}_{number}`, the app will create a sequence as a list of indices of `animation.frames` that correspond to the named sequence. For example:
 ```
    ./images/
             background.jpg          # access as images['background']
@@ -363,35 +400,38 @@ An app can include an `images` folder, and a mode can includes a `Mode_name/imag
 
 A sprite is an instance of a static image or animation at a given x/y coordinate. Calling `mode.add_sprite(sprite)` binds a sprite to the app and adds it to the mode.sprites array. During `draw()`, a mode can call `render_sprites()` to render all sprites. Each sprite can have a `process()` method that is automatically called during `mode.process()`.
 
-The location of a sprite on the screen for a given x/y coordinate is determined by mode.sprite_positions: SpritePosition.TopLeft, SpritePosition.Center, or SpritePosition.Bottom. The drawing order of sprites is also determined by mode.sprite_positions. can be overridden by specifying sprite.z. Sprites are drawn in reverse order of z (1 = last sprite drawn), and all sprites without a .z value are drawn at z=100.
+The location of a sprite on the screen for a given x/y coordinate is determined by mode.sprite_positions (default: SpritePosition.Bottom): SpritePosition.TopLeft, SpritePosition.Center, or SpritePosition.Bottom. The drawing order of sprites is determined by mode.sprite_positions and can be overridden by specifying sprite.z. Sprites are drawn in reverse order of z (1 = last sprite drawn), and all sprites without a .z value are drawn at z=100.
 
-A sprite can be created with or assigned a `.static_image` to be drawn when rendered. If `static_image` is not set, a sprite that has an `.animation` will draw frames from that animation library. If a sprite is created with `Sprite(animation: str)`, the app will try to bind the sprite to the animation. Secondarily, if a sprite is create with `Sprite(name: str)`, the app will both assign the given name to the sprite and try to bind the sprite to the animation with the same name.
+A sprite can be created with or assigned a `.static_image` to be drawn when rendered. If `static_image` is not set, a sprite that has an `.animation` will draw frames from that animation library. If a sprite is created with `Sprite(animation: str)`, the app will try to bind the sprite to the animation. Secondarily, if a sprite is created with `Sprite(name: str)`, the app will both assign the given name to the sprite and try to bind the sprite to the animation with the same name.
 
-Calling `set_sequence(sequence_name)` causes the sprite to be rendered with the named sequence of frames. Calling `sprite.animate()` increments the sequence frame. Alternatively, setting `sprite.auto_animate_rate` to a nonzero integer causes the spirte to be incremented along the sequence before it is rendered. The integer indicates the number of renderings between increments - i.e., `.auto_animate_rate=1` causes the sequence to increment every rendering.
+Calling `set_sequence(sequence_name)` causes the sprite to be rendered with the named sequence of frames. Calling `sprite.animate()` increments the sequence frame. Alternatively, setting `sprite.auto_animate_rate` to a nonzero integer causes the sprite to be incremented along the sequence before it is rendered. The integer indicates the number of renderings between increments - i.e., `.auto_animate_rate=1` causes the sequence to increment every rendering.
 
 Calling `.set_image()` chooses the static image or the current image from the animation, applies sprite effects, sets the `.width` and `.height` fields, and finally sets `sprite.image` and directly returns the image.
 
 ### Sprite Class Fields and Methods
 
 ```
+Sprite(name: str=None, static_image: str=None, animation: str|Animation=None,
+    auto_animate_rate: int=None)
 name: str|None
-x, y: int                            # screen coordinates, based on mode.sprite_positions
-z: int|None                          # fixed Z-order (defaults to 100)
+x, y: int|None                       # screen coordinates, based on mode.sprite_positions
+z: int|None                          # fixed Z-order (None uses 100 for sort order)
 static_image: str|Surface|None       # static image; overrides animation
+set_static_image(image)              # sets static_image via image lookup
 animation: str|Animation|None        # animation library for sprite
-set_sequence(sequence_name: str, auto_animate_rate: int=None)
+set_sequence(sequence_name: str, auto_animate_rate: int=None, reset_sequence_frame: bool=True) -> bool
 sequence_name: str|None              # name of current sequence
 sequence_frame: int|None             # number of current frame
-animate()                            # increment sequence frame
-auto_animate_rate: int|None          # automatically animates each (n) renderings
+animate(sequence_frame: int=None) -> bool  # increment or jump to sequence frame
+auto_animate_rate: int               # 0=disabled; n=animate each n renderings
 set_image(): Surface|None            # sets .image and also returns image
 image                                # current image, set by set_image()
 width, height                        # current image size, set by set_image()
-scale: float|tuple|None              # float=proporational scale factor; tuple=per-axis
+scale: float|tuple|None              # float=proportional scale factor; tuple=per-axis
 flip_x: bool                         # flips horizontally
 flip_y: bool                         # flips vertically
 rotate: float|None                   # rotates CCW by given number of degrees
-hue_shift: float|None                # perform hue rotation (0-100)
+hue_shift: float|None                # perform hue rotation (0-360)
 process()                            # stub method for sprite process
 ```
 
@@ -430,12 +470,14 @@ name: str									 # worker name
 config: dict								 # config
 config_manager: bool						 # whether this worker manages the config
 log_manager: bool						     # whether this worker manages the log
+wifi_manager: bool						     # whether this worker manages the wifi watchdog
 init()                                       # stub method for pre-start initialization
 start_worker()                               # stub method for post-start initialization
 process()                                    # stub method for high-frequency processing
 process_periodic()                           # stub method for low-frequency processing
 send_message(message: str|dict)
 	# messages are sent as dicts - a provided string will be sent as {'action': message}
+process_message(message, sender=None)    # stub method for handling app messages
 send_updated_config()		    			 # sends config to app
 write_config()								 # writes config and sends to app
 update_config(key, value)					 # writes updated config; sends to app
@@ -449,21 +491,58 @@ This file contains high-level Jubilee application configuration features. App lo
 "screen_resolution": [320, 240] 			 # screen resolution for drawing
 "screen_rotation": 0                         # 90/180/270-degree rotations
 "headless": false                            # display vs. no-display configurations
-"pointer_input": true						 # receive pointer (mouse or touch) events
-"keyboard_input": false						 # receive keyboard events 
+"pointer_input": true						 # receive pointer (mouse or touch) events (Linux only)
+"keyboard_input": true						 # receive keyboard events
 "screen_scale": [[0, 319, -1], [0, 239, 1]]  # screen range/direction for pointer input
-"app_process_fps": 10       			     # app.process() fps
-"app_draw_fps": 10							 # app.draw() fps 
+"swap_axes": false                           # swap X/Y axes for touch input (Linux only)
+"display_fps": false                         # show FPS counter on screen
+"app_process_fps": 20       			     # app.process() fps
+"app_draw_fps": 20							 # app.draw() fps
 "nosound": false                             # sound vs. no-sound configurations
-"modal": false								 # app_process => current mode or all modes
+"sound_retainer": false                      # keep audio hardware active to prevent pops
+"modal": true								 # app_process => current mode or all modes
 "worker_process_fps": 20			         # worker.process() fps
 "worker_process_periodic_fps": 1             # worker.process_periodic() fps
 "persist_app_state": true					 # automatically save/load app_state
 "app_state_filename": "app_state.txt"		 # file to store app_state dict
 "app_state_start_filename": "app_state_start.txt"  # file to store initial app_state dict
-"rotate_log": "daily"                        # log rotation: monthly, daily, hourly
-"font": "freeserif"	    					 # default font name
-"font_size": 14								 # standard size (overridden as 15 on macOS)
+"log_rotation": "daily"                      # log rotation: monthly, daily, hourly
+"font": null	    					     # default font name (null = first available system font)
+"font_size": 14								 # font size on RPi/Linux
+"font_size_desktop": 15						 # font size on macOS (desktop fonts render differently)
+"wifi_watchdog": false                       # enable WiFi watchdog (Linux only)
+"wifi_ping_target": null                     # ping target; null = auto-detect gateway
+"wifi_ping_interval": 300                    # seconds between checks (default: 5 min)
+"wifi_interface": "wlan0"                    # WiFi interface name
+"wifi_ping_count": 3                         # pings per connectivity check
+"wifi_ping_timeout": 5                       # seconds per ping timeout
+"wifi_reboot_enabled": true                  # allow reboot as last resort
+"wifi_reboot_daily_max": 3                   # max reboots per calendar day
+"wifi_reboot_after_failures": 3              # consecutive full failures before reboot
+```
+
+### WiFi Watchdog
+
+The WiFi watchdog monitors network connectivity on Linux (Raspberry Pi) devices and performs escalating recovery when connectivity is lost. It also serves as a keepalive mechanism, sending periodic pings to prevent the WiFi firmware from entering problematic idle states.
+
+The watchdog is disabled by default. Enable it by setting `"wifi_watchdog": true` in config.txt. It only operates on Linux; on other platforms it silently does nothing.
+
+The watchdog runs on the first Worker (same as config and log managers). It checks connectivity at the configured interval (`wifi_ping_interval`, default 5 minutes). When a ping to the target fails, it performs escalating recovery:
+
+1. `nmcli device connect` (lightweight reconnect)
+2. Interface restart (`ip link` down/up)
+3. NetworkManager restart
+4. WiFi driver reload (`modprobe -r/modprobe brcmfmac`)
+5. Device reboot (if enabled, under daily cap, after consecutive failures)
+
+Each step waits for the network to stabilize and re-checks connectivity before escalating further.
+
+Status messages are sent to the App and stored in `app.wifi_connected` (`None`/`True`/`False`) and `app.wifi_consecutive_failures` (`int`). Modes can read these to display WiFi status:
+
+```
+# in any Mode.draw():
+if self.app.wifi_connected is False:
+    self.app.center_text('WiFi Disconnected', color='red')
 ```
 
 ## misc.py Reference
@@ -483,9 +562,10 @@ Operations default to get_filename() filename, which is usually `log.txt`. The f
 ```
 ERROR, WARNING, INFO, DEBUG                             # const levels
 reset(filename: str=None)
-backup(filename: str=None, backup_folder: str=None)     # defaults='log_{time}', '.logs/'
+backup(filename: str=None, backup_filename: str=None, backup_folder: str=None)
+    # defaults: backup_filename='log_{time}', backup_folder='logs/'
 set_file_level(level, filename: str=None)               # specify const level
-set_console_level(level, filename: str=None)            # specify const level
+set_console_level(level)                                # specify const level
 error(message, filename: str=None)                      # converts to str(message)
 warning(message, filename: str=None)                    # converts to str(message)
 info(message, filename: str=None)                       # converts to str(message)
@@ -493,8 +573,8 @@ debug(message, filename: str=None)                      # converts to str(messag
 read(filename: str=None) -> list
 get_modification_date(filename: str=None)
 get_filename() -> str
-parse(record: str) -> dict
-    # parses log string to {'dt', 'class', 'function', 'level', 'message'}
+parse(record: str) -> dict|None
+    # parses log string to {'dt', 'class', 'method', 'level', 'message'}; None on failure
 ```
 
 ### Color
@@ -509,14 +589,14 @@ Random common functionality.
 key_names                                   # from pygame: ('backspace', 'tab', etc.)
 key_symbols: dict                           # unshifted typable key symbols
 key_shift_symbols: dict                     # {'a': 'A', ...}
-null_date = datetime.utcfromtimestamp(0)    # date represented by 0
+null_date = datetime.datetime(1970, 1, 1)  # epoch date
 user_agent                                  # user_agent selected for this session
 choose_user_agent()                         # chooses a popular user_agent
 calculate_hashcode(data: dict) -> str       # sha256 hash for json.dumps(data)
 http_request(url: str, method: str=None, headers: dict=None,
     data: dict=None, password: str=None, timeout: int=30,
-    randomize_user_agent: bool=False, timestamp: str=None) -> (int|None, str)
-        # if data=dict, uses HTTP POST and json.dumps(data); otherwise, GET by default
+    randomize_user_agent: bool=False, timestamp: int=None) -> (int|None, Response|str)
+        # returns (status_code, Response) on success; (None, error_string) on failure
 sign_request(url, password, timestamp: int=None) -> (bool, str)
         # calculates a URL with "&hash={sha256 hashcode}" appended
 get_local_ip_address() -> (bool, str)       # success, result or error message

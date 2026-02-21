@@ -52,13 +52,9 @@ class ImageEffectsMode(Mode):
 		
 		self.name = 'ImageEffects'
 		self.robot = Robot(self.app, self)
-		self.add_sprite(self.robot)
-
-	def process(self):
-		self.robot.process()
 
 	def draw(self):
-		""" Draw method for ImageEeffects mode. """
+		""" Draw method for ImageEffects mode. """
 
 		self.render_sprites()										# render robot
 

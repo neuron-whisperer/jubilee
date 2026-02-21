@@ -1,9 +1,7 @@
 """ Script Jubilee app. """
 
-import random, sys
 from jubilee import App, Mode
 from jubilee.controls import Button
-from jubilee.misc import Log, Misc
 
 class ScriptApp(App):
 	""" Script app. """
@@ -17,7 +15,6 @@ class MainMode(Mode):
 
 	def init(self):
 		self.name = 'Main'
-		self.submodes = ['ask_graphic', 'ask_sound', 'finish']
 		self.set_submode('ask_graphic')
 
 	def enter_ask_graphic(self, mode_parameters: dict=None):

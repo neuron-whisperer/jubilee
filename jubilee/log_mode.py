@@ -3,7 +3,7 @@
 import math, platform, time
 try:
 	import psutil
-except:
+except ImportError:
 	psutil = None
 from .mode import Mode
 from .controls import Button
@@ -67,7 +67,7 @@ class LogMode(Mode):
 		""" Log mode enter method. """
 
 		super().enter(mode_parameters)
-		self.return_mode = mode_parameters.get('previous_mode', self.return_mode)
+		self.return_mode = (mode_parameters or {}).get('previous_mode', self.return_mode)
 		self.log_page = 0
 		self.check_log()
 
@@ -116,7 +116,7 @@ class LogMode(Mode):
 			try:
 				self.cpu_load.append(int(psutil.cpu_percent()))
 				self.cpu_load = self.cpu_load[-max_graph_points:]
-			except:
+			except Exception:
 				pass
 			temperature = None
 			if platform.system() != 'Darwin':
@@ -191,7 +191,7 @@ class LogMode(Mode):
 		""" Changes font. """
 
 		self.app.change_font()
-		self.app.set_popover(f'Changed font to {self.app.standard_font}')
+		self.app.set_popover(f'Changed font to {self.app.standard_font_name}')
 
 	def log_page_up(self):
 		""" Scrolls log up one page. """

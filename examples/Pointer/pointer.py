@@ -48,14 +48,14 @@ class PointerMode(Mode):
 		self.circles.append(Circle(self.app, x, y))
 
 	def process(self):
-		""" Process method for Hello mode. """
+		""" Process method for Pointer mode. """
 
 		for c in self.circles:
 			if c.process():
 				self.circles.remove(c)
 
 	def draw(self):
-		""" Draw method for Hello mode. """
+		""" Draw method for Pointer mode. """
 
 		for c in self.circles:
 			c.draw()

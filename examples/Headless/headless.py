@@ -1,6 +1,6 @@
 """ Headless Jubilee app. """
 
-import random, sys
+import random
 from jubilee import App, Mode
 from jubilee.misc import Log
 from headless_worker import HeadlessWorker
@@ -37,7 +37,7 @@ class HeadlessMode(Mode):
 	def process(self):
 		""" Process method for No_Display mode. """
 		
-		if random.randint(0, 0) > 0:
+		if random.randint(0, 9) > 0:
 			return
 		try:
 			worker = random.choice(list(self.app.workers.keys()))
@@ -47,7 +47,7 @@ class HeadlessMode(Mode):
 			Log.info(f'Sent ping {ping_id}')
 			self.app.pings[ping_id] = False
 		except Exception as e:
-			print(e)
+			Log.error(e)
 
 if __name__ == '__main__':
 	HeadlessApp().run()

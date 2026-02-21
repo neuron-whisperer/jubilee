@@ -22,7 +22,7 @@ class Mode:
 		# find submodes by introspection
 		method_names = list(m[0] for m in inspect.getmembers(self, predicate=inspect.ismethod))
 		self.submodes = []
-		for method_type in ['enter', 'click', 'process', 'draw', 'exit']:
+		for method_type in ['enter', 'click', 'hold', 'release', 'process', 'draw', 'exit']:
 			for m in (m for m in method_names if m.startswith(f'{method_type}_')):
 				submode_name = m[len(method_type) + 1:]
 				if len(submode_name) > 0 and submode_name not in self.submodes:
@@ -162,6 +162,11 @@ class Mode:
 				self.selected_control.on_hold()
 			except Exception as e:
 				Log.error(f'Exception holding control {self.selected_control.name}: {e}')
+		elif self.submode is not None and hasattr(self, f'hold_{self.submode}'):
+			try:
+				getattr(self, f'hold_{self.submode}')()
+			except Exception as e:
+				Log.error(f'Exception holding mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.hold()
@@ -180,6 +185,11 @@ class Mode:
 			except Exception as e:
 				Log.error(f'Exception releasing control {self.selected_control.name}: {e}')
 			self.selected_control = None
+		elif self.submode is not None and hasattr(self, f'release_{self.submode}'):
+			try:
+				getattr(self, f'release_{self.submode}')()
+			except Exception as e:
+				Log.error(f'Exception releasing mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.release()
@@ -192,14 +202,16 @@ class Mode:
 	def on_process(self):
 		""" Mode process event receiver. """
 
+		if self.mode_timer is not None:
+			self.mode_timer += 1
+		if self.submode is not None and self.submode_timer is not None:
+			self.submode_timer += 1
+
 		if self.submode is not None and hasattr(self, f'process_{self.submode}'):
 			try:
-				try:
-					getattr(self, f'process_{self.submode}')()
-				except Exception as e:
-					Log.error(f'Error processing mode {self.name} submode {self.submode}: {e}')
+				getattr(self, f'process_{self.submode}')()
 			except Exception as e:
-				Log.error(f'Exception processing mode {self.name} submode {self.submode}: {e}')
+				Log.error(f'Error processing mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.process()
@@ -214,15 +226,13 @@ class Mode:
 	def on_draw(self):
 		""" Mode draw event receiver. """
 
-		self.mode_timer += 1
 		if self.background_color is not None:
 			self.app.fill_screen(self.background_color)
 		if self.submode is not None and hasattr(self, f'draw_{self.submode}'):
-				self.submode_timer += 1
-				try:
-					getattr(self, f'draw_{self.submode}')()
-				except Exception as e:
-					Log.error(f'Exception drawing mode {self.name} submode {self.submode}: {e}')
+			try:
+				getattr(self, f'draw_{self.submode}')()
+			except Exception as e:
+				Log.error(f'Exception drawing mode {self.name} submode {self.submode}: {e}')
 		else:
 			try:
 				self.draw()
@@ -303,10 +313,10 @@ class Mode:
 
 		# call exit_submode on current submode if it exists, and set submode to None
 		if self.submode is not None and hasattr(self, f'exit_{self.submode}'):
-				try:
-					getattr(self, f'exit_{self.submode}')()
-				except Exception as e:
-					Log.error(f'Exception exiting mode {self.name} submode {self.submode}: {e}')
+			try:
+				getattr(self, f'exit_{self.submode}')()
+			except Exception as e:
+				Log.error(f'Exception exiting mode {self.name} submode {self.submode}: {e}')
 		try:
 			self.exit()
 		except Exception as e:

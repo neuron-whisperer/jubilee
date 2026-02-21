@@ -1,6 +1,6 @@
 [project]
 name = "jubilee"
-version = "0.38"
+version = "0.39"
 authors = [
 	{name = "David Stein", email = "jubilee@steinemail.com"},
 ]
@@ -12,9 +12,9 @@ license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 dynamic = ["dependencies"]
 
-[projects.urls]
+[project.urls]
 Homepage = "https://github.com/neuron-whisperer/jubilee"
-Documentation = "https://github.com/neuron-whisperer/jubilee/Docs/Jubilee_Reference.md"
+Documentation = "https://github.com/neuron-whisperer/jubilee/blob/main/Jubilee%20Reference.md"
 Repository = "https://github.com/neuron-whisperer/jubilee.git"
 Issues = "https://github.com/neuron-whisperer/jubilee/issues"
 
@@ -22,11 +22,11 @@ Issues = "https://github.com/neuron-whisperer/jubilee/issues"
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tools.setuptools]
+[tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 
-[tools.setuptools.packages.find]
+[tool.setuptools.packages.find]
 where = ["."]

@@ -1,6 +1,6 @@
 """ Jubilee App class. """
 
-import atexit, json, math, multiprocessing, os, platform, queue, signal, subprocess, sys, time
+import atexit, json, math, multiprocessing, os, platform, queue, signal, subprocess, sys, tempfile, time
 import __main__, numpy, pygame
 from pygame import Rect
 from pygame.font import Font
@@ -10,6 +10,18 @@ from .worker import Worker
 from .mode import Mode
 from .base_classes import SpritePosition, Animation
 from .misc import Config, Log, Color, Misc
+
+class _LazyFontDict(dict):
+	""" Dict that lazily creates pygame fonts on first access by size. """
+
+	def __init__(self, font_name):
+		super().__init__()
+		self.font_name = font_name
+
+	def __missing__(self, size):
+		font = pygame.font.SysFont(self.font_name, size)
+		self[size] = font
+		return font
 
 class App:
 
@@ -53,12 +65,14 @@ class App:
 			sys.exit(1)
 
 		self.process_last = 0										# time of last process method
-		self.process_period = 1.0 / max(1, int(self.config.get('app_process_fps', 10)))
+		self.process_period = 1.0 / max(1, int(self.config.get('app_process_fps', 20)))
 
 		if self.headless is False:
 
 			# initialize window
-			self.screen_width, self.screen_height = self.config.get('screen_resolution', pygame.display.list_modes()[0])
+			available_modes = pygame.display.list_modes()
+			default_resolution = available_modes[0] if available_modes else (320, 240)
+			self.screen_width, self.screen_height = self.config.get('screen_resolution', default_resolution)
 			self.screen_center = int(self.screen_width / 2)
 			self.screen_middle = int(self.screen_height / 2)
 			if platform.uname().system == 'Darwin':
@@ -71,19 +85,22 @@ class App:
 
 			# adjust for screen rotation
 			self.screen = None
-			self.screen_rotation = self.config.get('screen_rotation', 0)
+			if platform.uname().system == 'Darwin':
+				self.screen_rotation = 0
+			else:
+				self.screen_rotation = self.config.get('screen_rotation', 0)
 			if self.screen_rotation in (90, 270):
 				size = (size[1], size[0])
 			try:
 				self.window = pygame.display.set_mode(size=size, flags=flags, display=0, vsync=1)
-			except:
+			except Exception:
 				self.window = pygame.display.set_mode(size=size, flags=flags, display=0)
 			if self.screen_rotation != 0:
 				self.screen = self.window
 				self.window = pygame.Surface(size=(self.screen_width, self.screen_height))
 
 			# fade overlay
-			self.display_fade_overlay = Surface(size=size).convert_alpha()
+			self.display_fade_overlay = Surface(size=(self.screen_width, self.screen_height)).convert_alpha()
 			self.display_fade_steps = None
 			self.display_fade_step = None
 			self.display_fade_end_mode = None
@@ -101,23 +118,24 @@ class App:
 			self.fps_count = 0											# FPS count for last second
 			self.fps_counting = 0										# FPS count for current second
 			self.fps_time = int(time.time())				# time of current FPS count
-			self.draw_period = 1.0 / max(1, int(self.config.get('app_draw_fps', 10)))
+			self.draw_period = 1.0 / max(1, int(self.config.get('app_draw_fps', 20)))
 
 			# fonts
-			self.standard_font_size = int(self.config.get('font_size', 11))
-			# use a different default font size on MacOS
 			if platform.uname().system == 'Darwin':
-				self.standard_font_size = 15
+				self.standard_font_size = int(self.config.get('font_size_desktop', 15))
+			else:
+				self.standard_font_size = int(self.config.get('font_size', 14))
 			self.font_list = pygame.font.get_fonts()
 			self.standard_font_name = None
 			self.standard_font = None
 			self.set_standard_font()
 			self.display_fps = self.config.get('display_fps', False)
 
-		# fetch initial events
+		# fetch initial events (non-headless only)
 		# this is necessary because if MacOS receives a mouse-click on the window before
 		# calling events the first time, subsequent click events are often dropped.
-		pygame.event.get()
+		if self.headless is False:
+			pygame.event.get()
 
 		# add workers
 		self.workers = {}
@@ -135,6 +153,10 @@ class App:
 		self.persist_app_state = self.config.get('persist_app_state', True)
 		if self.persist_app_state is True:
 			self.load_app_state()
+
+		# wifi state (updated by worker wifi manager)
+		self.wifi_connected = None
+		self.wifi_consecutive_failures = 0
 
 		# script information
 		self.script = None
@@ -159,6 +181,8 @@ class App:
 
 		# pointer input
 		self.pointer = None
+		self.pointer_input_last = time.time()				# time of last pointer input
+		self.pointer_input_debouncing = 100					# time between pointer inputs (ms)
 		if self.headless is False:
 			if platform.uname().system == 'Darwin':
 				from .mouse_interface import MouseInterface
@@ -168,8 +192,6 @@ class App:
 				scale = self.config.get('screen_scale', [[0, 319, -1], [0, 239, 1]])
 				swap_axes = self.config.get('swap_axes', False)
 				self.pointer = TouchInterface(resolution=(self.screen_width, self.screen_height), scale=scale, swap_axes=swap_axes)
-			self.pointer_input_last = time.time()				# time of last pointer input
-			self.pointer_input_debouncing = 100					# time between pointer inputs (ms)
 
 		# key input
 		self.new_keys = []														# all keys newly pressed this frame
@@ -177,6 +199,9 @@ class App:
 		self.keyboard_buffering = False								# whether key input is being buffered
 		self.keyboard_buffer = ''
 		self.keyboard_buffer_chars = []
+
+		# register exit handlers
+		self.register_exit_handlers()
 
 		# initialize script
 		self.init_script()
@@ -212,9 +237,10 @@ class App:
 		worker_queue = multiprocessing.Queue()			# queue to receive messages from worker
 		config_manager = (len(self.workers) == 0)		# first worker manages config
 		log_manager = (len(self.workers) == 0)			# first worker also manages log rotation
+		wifi_manager = (len(self.workers) == 0)			# first worker also manages wifi watchdog
 		if len(self.workers) > 0:
 			time.sleep(1)															# delay to allow previous worker to start
-		worker_instance = worker(app_queue, worker_queue, config_manager, log_manager)
+		worker_instance = worker(app_queue, worker_queue, config_manager, log_manager, wifi_manager)
 		self.workers[worker_instance.name] = worker_instance
 
 	def add_workers(self, workers: list):
@@ -289,7 +315,7 @@ class App:
 			report_threshold = 0.2		# report processing if more than 0.2 seconds
 
 			start = time.time()
-			if self.config.get('modal') is True:			# only process current mdoe
+			if self.config.get('modal') is True:			# only process current mode
 				if self.mode is None:
 					return
 				try:
@@ -381,8 +407,6 @@ class App:
 		""" Handle pygame events and messages from worker. """
 
 		events = list(pygame.event.get())
-		if self.pointer:
-			self.pointer.clicked = False
 		for event in events:
 			if event.type == pygame.QUIT:
 				self.exit(0)
@@ -398,11 +422,12 @@ class App:
 				self.on_click(self.pointer.x, self.pointer.y)
 
 			# respond to hold and release events, and then update state
-			if self.pointer.down is True:
-				if self.pointer.held is True:		# held
-					self.mode.on_hold()
-			elif self.pointer.held is True:		# released
-				self.mode.on_release()
+			if self.mode is not None:
+				if self.pointer.down is True:
+					if self.pointer.held is True:		# held
+						self.mode.on_hold()
+				elif self.pointer.held is True:		# released
+					self.mode.on_release()
 
 			# set state for next time
 			self.pointer.held = self.pointer.down
@@ -477,8 +502,16 @@ class App:
 				self.send_message(message, name)
 			if self.headless is False:
 				self.set_standard_font()
+		elif action == 'wifi status':
+			self.wifi_connected = message.get('connected')
+			self.wifi_consecutive_failures = message.get('consecutive_failures', 0)
+			if self.wifi_connected is False:
+				Log.warning(f'WiFi disconnected (failures: {self.wifi_consecutive_failures})')
+		elif action == 'wifi recovery':
+			step = message.get('step', 'unknown')
+			Log.info(f'WiFi recovery: {step}')
 		else:
-			Log.error(f'Received unknown message: {message}')
+			Log.warning(f'Received unknown message: {message}')
 
 	# low-level graphics methods
 
@@ -508,7 +541,9 @@ class App:
 		""" Fills surface with white-noise static. """
 
 		dest = dest or self.window
-		pygame.surfarray.blit_array(dest, numpy.random.randint(255, size=dest.get_size()) * 65793)
+		w, h = dest.get_size()
+		noise = numpy.random.randint(0, 256, size=(w, h, 3), dtype=numpy.uint8)
+		pygame.surfarray.blit_array(dest, noise)
 
 	def draw_text(self, text: str, x: int|float, y: int|float, color='white', font: str|Font=None, alignment: str='left', dest: Surface=None):
 		""" Draws text. Font can be either a pygame.font.SysFont, a font name (default size),
@@ -554,7 +589,7 @@ class App:
 		dest.set_at((int(x), int(y)), color)
 
 	def draw_line(self, x1: int|float, y1: int|float, x2: int|float, y2: int|float, width: int|float=1, color='white', dest: Surface=None):
-		""" Draws pixel at coordinate. """
+		""" Draws line between coordinates. """
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
@@ -568,7 +603,7 @@ class App:
 		pygame.draw.rect(dest, color, (left, top, width, height), line_width)
 
 	def fill_rect(self, left: int|float, top: int|float, width: int|float, height: int|float, color='white', dest: Surface=None):
-		""" Fills pixel at coordinates. """
+		""" Fills rect at coordinates. """
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
@@ -593,12 +628,12 @@ class App:
 
 		self.draw_circle(x, y, radius=radius, width=0, color=color, dest=dest)
 
-	def draw_arc(self, x: int|float, y: int|float, width: int|float, height: int|float, start_angle: int|float, stop_angle: int|float, line_width: int|float=1, color='white', dest: Surface=None):
+	def draw_arc(self, x: int|float, y: int|float, arc_width: int|float, arc_height: int|float, start_angle: int|float, stop_angle: int|float, line_width: int|float=1, color='white', dest: Surface=None):
 		""" Draws arc at x/y coordinate from start_angle (degrees) to stop_angle (degrees). """
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
-		pygame.draw.arc(dest, color, Rect(x, y, width, height), start_angle * math.pi / 180, stop_angle * math.pi / 180, width = line_width)
+		pygame.draw.arc(dest, color, Rect(x, y, arc_width, arc_height), start_angle * math.pi / 180, stop_angle * math.pi / 180, width=line_width)
 
 	# surface and image methods
 
@@ -665,7 +700,7 @@ class App:
 					sequence_files.setdefault(sequence_name, {})
 					try:
 						sequence_files[sequence_name][int(sequence_number)] = i
-					except:		# file ends with non-numeric field
+					except ValueError:		# file ends with non-numeric field
 						animation.sequences[name] = [i]
 
 			# once all sequences are loaded, sort by names and store in animation.sequences
@@ -713,7 +748,7 @@ class App:
 		if animation is None or isinstance(animation, Animation):
 			return animation
 		if isinstance(animation, str) is False:
-			Log.error(f'Could not identify nimation of type {type(animation)}')
+			Log.error(f'Could not identify animation of type {type(animation)}')
 			return None
 		# in order: check mode image library, then app image library
 		a = self.mode.animations.get(animation) if self.mode is not None else None
@@ -757,9 +792,9 @@ class App:
 		if i is None:
 			Log.error(f'Could not get image of type {image}')
 			return None
-		x, y = image.get_size()
-		x = x * x_scale
-		y = y * (y_scale or x_scale)
+		x, y = i.get_size()
+		x = int(x * x_scale)
+		y = int(y * (y_scale or x_scale))
 		return pygame.transform.smoothscale(i, (x, y))
 
 	def flip_image(self, image: str|Surface, horizontal: bool=False, vertical: bool=False) -> Surface|None:
@@ -781,28 +816,72 @@ class App:
 		return pygame.transform.rotate(i, degrees)
 
 	def shift_image_hue(self, image: str|Surface, delta: int|float) -> Surface|None:
-		""" Shifts image hue by a delta value (range 0-360). """
+		""" Shifts image hue by a delta value (range 0-360). Uses numpy for performance. """
 
 		i = self.get_image(image)
 		if i is None:
 			Log.error(f'Could not get image of type {image}')
 			return None
-		i = i.copy()			# make a copy of the image to edit pixels in place
-		pixels = pygame.PixelArray(i)
-		for x in range(i.get_width()):
-			for y in range(i.get_height()):
-				color = i.unmap_rgb(pixels[x][y])
-				h, s, l, a = color.hsla
-				color.hsla = (int(h) + int(delta)) % 360, int(s), int(l), int(a)
-				pixels[x][y] = color
-		del pixels
-		return i
+		try:
+			arr = pygame.surfarray.pixels3d(i).copy()
+			alpha = pygame.surfarray.pixels_alpha(i).copy() if i.get_alpha() is not None else None
+			# convert RGB to float 0-1
+			r, g, b = arr[:,:,0] / 255.0, arr[:,:,1] / 255.0, arr[:,:,2] / 255.0
+			maxc = numpy.maximum(numpy.maximum(r, g), b)
+			minc = numpy.minimum(numpy.minimum(r, g), b)
+			diff = maxc - minc
+			# calculate hue
+			h = numpy.zeros_like(maxc)
+			mask = diff > 0
+			rm = mask & (maxc == r)
+			gm = mask & (maxc == g) & ~rm
+			bm = mask & ~rm & ~gm
+			h[rm] = (60.0 * ((g[rm] - b[rm]) / diff[rm])) % 360.0
+			h[gm] = (60.0 * ((b[gm] - r[gm]) / diff[gm]) + 120.0) % 360.0
+			h[bm] = (60.0 * ((r[bm] - g[bm]) / diff[bm]) + 240.0) % 360.0
+			# shift hue
+			h = (h + delta) % 360.0
+			# lightness and saturation
+			l = (maxc + minc) / 2.0
+			s = numpy.zeros_like(l)
+			s[mask] = numpy.where(l[mask] <= 0.5, diff[mask] / (maxc[mask] + minc[mask]),
+				diff[mask] / (2.0 - maxc[mask] - minc[mask]))
+			# convert HSL back to RGB
+			c = (1.0 - numpy.abs(2.0 * l - 1.0)) * s
+			h_prime = h / 60.0
+			x_val = c * (1.0 - numpy.abs(h_prime % 2.0 - 1.0))
+			m = l - c / 2.0
+			r_out = numpy.zeros_like(h)
+			g_out = numpy.zeros_like(h)
+			b_out = numpy.zeros_like(h)
+			for lo, hi, rv, gv, bv in [(0,1,c,x_val,0),(1,2,x_val,c,0),(2,3,0,c,x_val),
+				(3,4,0,x_val,c),(4,5,x_val,0,c),(5,6,c,0,x_val)]:
+				sector = (h_prime >= lo) & (h_prime < hi)
+				r_out[sector] = (rv[sector] if not isinstance(rv, int) else rv)
+				g_out[sector] = (gv[sector] if not isinstance(gv, int) else gv)
+				b_out[sector] = (bv[sector] if not isinstance(bv, int) else bv)
+			arr[:,:,0] = numpy.clip((r_out + m) * 255, 0, 255).astype(numpy.uint8)
+			arr[:,:,1] = numpy.clip((g_out + m) * 255, 0, 255).astype(numpy.uint8)
+			arr[:,:,2] = numpy.clip((b_out + m) * 255, 0, 255).astype(numpy.uint8)
+			if alpha is not None:
+				result = pygame.Surface(i.get_size(), pygame.SRCALPHA).convert_alpha()
+				pygame.surfarray.blit_array(result, arr)
+				alpha_surf = pygame.surfarray.pixels_alpha(result)
+				alpha_surf[:] = alpha
+				del alpha_surf
+			else:
+				result = pygame.Surface(i.get_size()).convert()
+				pygame.surfarray.blit_array(result, arr)
+			return result
+		except Exception as e:
+			Log.error(e)
+			return None
 
 	def set_popover(self, message: str, steps: int=None):
 		""" Creates a popover message. """
 
 		self.popover_message = message
-		self.popover_steps = steps if steps is not None else int(self.config.get('app_draw_fps', 10) * 0.75)
+		self.popover_steps = steps if steps is not None else int(self.config.get('app_draw_fps', 20) * 0.75)
 		self.popover_step = 0
 
 	def start_display_fade(self, steps: int=None, color='black', end_mode: str=None, end_parameters: dict=None):
@@ -851,7 +930,7 @@ class App:
 		""" Loads sounds from path. Called here and also in Mode. """
 
 		sounds = {}
-		sound_types = ['.wav']
+		sound_types = ['.wav', '.ogg']
 		if os.path.isdir(path) is False:
 			return sounds
 		for filename in (f for f in os.listdir(path) if os.path.splitext(f)[1].lower() in sound_types):
@@ -896,17 +975,18 @@ class App:
 	def play_sound(self, sound: str|Sound, loops: int=None, volume: int|float=None):
 		""" Plays sound. Sound can be a pygame Sound, the filename of a sound
 				in the mode sound library or app sound library, or a filename.
-				Volume can be specified (range 0.0-1.0) to override
+				Volume can be specified (range 0-100) to override
 				sound volume; otherwise, sound will play at preset sound volume. """
 
 		if self.nosound is True:
 			return
+		sound_name = sound
 		sound = self.get_sound(sound)
 		if sound is None:
-			Log.error(f'Could not get sound {sound}')
+			Log.error(f'Could not get sound {sound_name}')
 			return
-		volume = volume or self.sound_volume
-		if volume is not None and volume != 100:
+		volume = volume if volume is not None else self.sound_volume
+		if volume != 100:
 			sound.set_volume(volume / 100.0)
 		sound.play(loops=loops or 0)
 
@@ -916,12 +996,13 @@ class App:
 
 		if self.nosound is True:
 			return None
+		sound_name = sound
 		sound = self.get_sound(sound)
 		if sound is None:
-			Log.error(f'Could not get sound {sound}')
+			Log.error(f'Could not get sound {sound_name}')
 			return None
-		volume = volume or self.sound_volume
-		if volume is not None and volume != 100:
+		volume = volume if volume is not None else self.sound_volume
+		if volume != 100:
 			sound.set_volume(volume / 100.0)
 		channel = pygame.mixer.find_channel()
 		if channel is None:
@@ -942,7 +1023,7 @@ class App:
 
 		self.music_volume = volume
 		pygame.mixer.music.set_volume(volume / 100.0)
-		self.sound_volume = sound_volume or volume
+		self.sound_volume = sound_volume if sound_volume is not None else volume
 
 	def set_sound_retainer(self, enable: bool=True):
 		""" Sets a retainer sound that plays a 1-second loop of very
@@ -971,9 +1052,12 @@ class App:
 			Log.error(f'Could not identify music of type {type(music_name)}')
 			return None
 
-		mode_path = os.path.join(self.base_path, self.mode.name, 'music', music_name)
-		app_path = os.path.join(self.base_path, 'music', music_name)
-		music = next(filter(os.path.isfile, (mode_path, app_path, music_name)), None)
+		paths = []
+		if self.mode is not None:
+			paths.append(os.path.join(self.base_path, self.mode.name, 'music', music_name))
+		paths.append(os.path.join(self.base_path, 'music', music_name))
+		paths.append(music_name)
+		music = next(filter(os.path.isfile, paths), None)
 		return music
 
 	def play_music(self, filename: str, loops: int=0, volume: int|float=None):
@@ -988,7 +1072,7 @@ class App:
 		if music is None:
 			Log.error(f'No file named {filename}')
 			return
-		volume = volume or self.music_volume
+		volume = volume if volume is not None else self.music_volume
 		pygame.mixer.music.set_volume(volume / 100.0)
 		try:
 			pygame.mixer.music.load(music)
@@ -1064,10 +1148,23 @@ class App:
 			self.save_app_state()
 
 	def save_app_state(self):
-		""" Saves script state. """
+		""" Saves app state atomically to prevent corruption on power loss. """
 
-		with open(self.app_state_filename, 'wt', encoding='UTF-8') as f:
-			f.write(json.dumps(self.app_state, ensure_ascii=True))
+		dir_name = os.path.dirname(os.path.abspath(self.app_state_filename))
+		try:
+			fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+			with os.fdopen(fd, 'wt', encoding='UTF-8') as f:
+				f.write(json.dumps(self.app_state, ensure_ascii=True))
+				f.flush()
+				os.fsync(f.fileno())
+			os.replace(tmp_path, self.app_state_filename)
+		except Exception as e:
+			Log.error(f'Failed to save app state: {e}')
+			try:
+				os.unlink(tmp_path)
+			except OSError:
+				pass
+			return
 		Log.debug('Saved app state')
 
 	# script and scene methods
@@ -1140,7 +1237,7 @@ class App:
 		if self.pointer_input_last is not None and time.time() < self.pointer_input_last + self.pointer_input_debouncing / 1000:
 			return
 
-		if x is None or y is None:
+		if x is None or y is None or self.mode is None:
 			return
 
 		self.pointer_input_last = time.time()
@@ -1173,11 +1270,11 @@ class App:
 		return Rect(0, 0, int(width), int(height))
 
 	def create_font(self, name='Arial', size=12):
-		""" Creates a font from a path or a system font name. """
+		""" Creates a font from a file path or a system font name. """
 
 		if os.path.isfile(name):
 			try:
-				return pygame.font.SysFont(name, size)
+				return pygame.font.Font(name, size)
 			except Exception as e:
 				Log.error(f'Exception loading font {name}: {e}')
 				return None
@@ -1189,15 +1286,18 @@ class App:
 				return None
 
 	def set_standard_font(self):
-		""" Sets default font, including a range of sizes. """
+		""" Sets default font, including lazily-created sizes. """
 
-		self.standard_font_name = self.config.get('font', None) or self.font_list[0]
+		self.standard_font_name = self.config.get('font', None) or (self.font_list[0] if self.font_list else None)
 		self.standard_font = pygame.font.SysFont(self.standard_font_name, self.standard_font_size)
-		self.standard_font_sizes = {i: pygame.font.SysFont(self.standard_font_name, i) for i in range(4, 65)}
+		self.standard_font_sizes = _LazyFontDict(self.standard_font_name)
 
 	def change_font(self):
 		""" Chooses next font in the font list as the default font. """
 
+		if not self.font_list:
+			Log.warning('No fonts available to cycle through')
+			return
 		current_index = len(self.font_list) if self.standard_font_name not in self.font_list else self.font_list.index(self.standard_font_name)
 		new_standard_font = self.font_list[(current_index + 1) % len(self.font_list)]
 		self.update_config('font', new_standard_font)
@@ -1223,10 +1323,17 @@ class App:
 	def exit(self, code=0):
 		""" Exits application. """
 
+		if getattr(self, '_exiting', False):
+			return
+		self._exiting = True
+
 		Log.info('Exiting')
 		for worker in self.workers.values():
 			if worker.worker_process is not None:
 				self.send_message('exit', worker.name)
+		for worker in self.workers.values():
+			if worker.worker_process is not None:
+				worker.worker_process.join(timeout=2)
 		if self.pointer is not None:
 			self.pointer.release()
 		try:
@@ -1240,7 +1347,7 @@ class App:
 		Log.info('Rebooting device')
 		self.fill_screen()
 		self.flip()
-		os.system('sudo shutdown -r now')
+		subprocess.run(['sudo', 'shutdown', '-r', 'now'])
 
 	def shut_down(self):
 		""" Shuts down device. """
@@ -1248,18 +1355,34 @@ class App:
 		Log.info('Shutting down device')
 		self.fill_screen()
 		self.flip()
-		os.system('sudo shutdown now')
+		subprocess.run(['sudo', 'shutdown', 'now'])
 
 	@staticmethod
 	def check_running_process(process_name: str=None) -> bool:
 		""" Checks for another running process of the same name. """
 
-		script_name = os.path.basename(__main__.__file__)
-		with subprocess.Popen(f'ps -ef | grep -v grep | grep {process_name or script_name}', shell=True, stdout=subprocess.PIPE) as ps:
-			output = ps.stdout.read(); ps.stdout.close(); ps.wait()
-			output = list(o.strip() for o in output.decode('UTF-8').split('\n') if len(o.strip()) > 0)
-			running_processes = list(list(o.strip() for o in line.split(' ') if len(o.strip()) > 0) for line in output if 'python' in line)
-		return len(running_processes) > 1
+		search_name = process_name or os.path.basename(__main__.__file__)
+		my_pid = os.getpid()
+		try:
+			result = subprocess.run(['ps', '-ef'], capture_output=True, text=True, timeout=5)
+			lines = [line for line in result.stdout.split('\n') if line.strip()]
+			count = 0
+			for line in lines:
+				if 'python' not in line:
+					continue
+				fields = line.split()
+				try:
+					pid = int(fields[1])
+				except (IndexError, ValueError):
+					continue
+				if pid == my_pid:
+					continue
+				# match the exact script name as a standalone path component
+				if any(arg == search_name or arg.endswith(os.sep + search_name) for arg in fields[7:]):
+					count += 1
+		except Exception:
+			return False
+		return count > 0
 
 if __name__ == '__main__':
 	App().run()

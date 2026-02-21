@@ -1,7 +1,7 @@
 """ Images Jubilee app. """
 
 import random
-from jubilee import App, Mode
+from jubilee import App, Mode, SpritePosition
 from jubilee.base_classes import Sprite
 
 class Bubble:
@@ -23,7 +23,7 @@ class Bubble:
 	def draw(self):
 		""" Draw method for Robot. """
 
-		self.app.blit('bubble', self.x, self.y, position='center')
+		self.app.blit('bubble', self.x, self.y, position=SpritePosition.Center)
 
 class Robot(Sprite):
 	""" Robot class. Subclassed from Sprite for convenience.

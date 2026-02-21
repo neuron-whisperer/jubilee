@@ -44,7 +44,7 @@ class HelloMode(Mode):
 
 	def click(self, x: int|float, y: int|float):
 		""" Click event handler for Hello mode. """
-		super().click(x, y)											# this can be skipped to override control input
+		pass  # add custom click handling here (controls are handled separately by on_click)
 
 	def process(self):
 		""" Process method for Hello mode. """

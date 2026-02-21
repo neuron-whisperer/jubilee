@@ -16,7 +16,7 @@ class ShutDownMode(Mode):
 
 		self.name = 'Shut Down'
 		button_width = 150
-		hold_steps = int(self.app.config.get('app_process_fps', 10) * 0.75)
+		hold_steps = int(self.app.config.get('app_process_fps', 20) * 0.75)
 		self.add_control(HoldButton('Yes', self.app.button_margin, self.app.screen_height - 60, button_width, 60, click=self.app.shut_down, hold_color='red', hold_steps=hold_steps))
 		self.add_control(Button('Cancel', self.app.screen_width - self.app.button_margin - button_width, self.app.screen_height - 60, button_width, 60, click=self.cancel_shutdown))
 

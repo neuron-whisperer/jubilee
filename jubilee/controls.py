@@ -36,9 +36,6 @@ class Control:
 
 		if self.provided_click_handler is not None:
 			self.provided_click_handler()
-	
-	def click(self):
-		""" Control click event stub method. """
 
 	def on_hold(self):
 		""" Control hold event receiver. """
@@ -75,7 +72,6 @@ class LabeledControl(Control):
 		self.color = color
 		self.offset = offset
 		self.name = name or f'LabeledControl: {self.control.name}'
-		self.is_initilized = False
 
 	def bind(self, app):
 		""" Control bind method for adding to a mode. """
@@ -363,7 +359,10 @@ class SelectButton(Control):
 		self.color = color
 		self.background_color = background_color
 		self.font = font
-		self.name = self.name or 'SelectButton'
+		if name is not None:
+			self.name = name
+		elif self.name == 'Control':
+			self.name = 'SelectButton'
 
 		if self.values is not None and len(self.items) != len(self.values):
 			Log.error(f'len(self.items) ({len(self.items)}) != len(self.values) ({len(self.values)})')

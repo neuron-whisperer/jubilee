@@ -28,12 +28,12 @@ class Sprite:
 		self.name = name
 		self.x = None
 		self.y = None
-		self.z = None											# Z-order overrides positioning; None = layer 255
+		self.z = None											# Z-order overrides positioning; None = layer 100
 		self.static_image = static_image	# set to Surface or image name for static image
 		self.animation = animation				# set to an Animation or animation name
 		self.sequence_name = None					# set to a sequence name for animation
 		self.sequence_frame = None
-		self.auto_animate_rate = max(1, int(auto_animate_rate) if auto_animate_rate is not None else 0)
+		self.auto_animate_rate = max(1, int(auto_animate_rate)) if auto_animate_rate is not None else 0
 		self.auto_animate_step = 0
 		self.scale = None									# set to either a float or a two-tuple
 		self.flip_x = False								# flip horizontally
@@ -43,6 +43,8 @@ class Sprite:
 		self.image = None									# this is set by set_image()
 		self.width = None									# this is set by set_image()
 		self.height = None								# this is set by set_image()
+		self._transform_cache_key = None	# cache key for transformed image
+		self._transform_cache_image = None	# cached transformed image
 
 	def bind(self, app):
 		""" Binds sprite to app. """
@@ -93,18 +95,28 @@ class Sprite:
 			if self.image is None:
 				return None
 
-			# apply transformations
-			if self.scale is not None:
-				if isinstance(self.scale, float):
-					self.image = self.app.scale_image(self.image, self.scale)
-				elif isinstance(self.scale, (tuple, list)) and len(self.scale) == 2:
-					self.image = self.app.scale_image(self.image, self.scale[0], self.scale[1])
-			if self.flip_x is True or self.flip_y is True:
-				self.image = self.app.flip_image(self.image, horizontal=self.flip_x, vertical=self.flip_y)
-			if self.rotate is not None:
-				self.image = self.app.rotate_image(self.image, self.rotate)
-			if self.hue_shift is not None:
-				self.image = self.app.shift_image_hue(self.image, self.hue_shift)
+			# apply transformations with caching
+			has_transforms = (self.scale is not None or self.flip_x or self.flip_y
+				or self.rotate is not None or self.hue_shift is not None)
+			if has_transforms:
+				cache_key = (id(self.image), self.scale if not isinstance(self.scale, list) else tuple(self.scale),
+					self.flip_x, self.flip_y, self.rotate, self.hue_shift)
+				if cache_key == self._transform_cache_key and self._transform_cache_image is not None:
+					self.image = self._transform_cache_image
+				else:
+					if self.scale is not None:
+						if isinstance(self.scale, (int, float)) and not isinstance(self.scale, bool):
+							self.image = self.app.scale_image(self.image, self.scale)
+						elif isinstance(self.scale, (tuple, list)) and len(self.scale) == 2:
+							self.image = self.app.scale_image(self.image, self.scale[0], self.scale[1])
+					if self.flip_x is True or self.flip_y is True:
+						self.image = self.app.flip_image(self.image, horizontal=self.flip_x, vertical=self.flip_y)
+					if self.rotate is not None:
+						self.image = self.app.rotate_image(self.image, self.rotate)
+					if self.hue_shift is not None:
+						self.image = self.app.shift_image_hue(self.image, self.hue_shift)
+					self._transform_cache_key = cache_key
+					self._transform_cache_image = self.image
 
 			# set size and return image
 			self.width, self.height = self.image.get_size()
@@ -127,8 +139,8 @@ class Sprite:
 				self.sequence_name = None
 				return False
 			self.sequence_name = sequence_name
-			self.auto_animate_rate = 0 if auto_animate_rate is None else max(1, int(self.auto_animate_rate))
-			if reset_sequence_frame is True or self.sequence_frame >= len(animation.sequences[sequence_name]):
+			self.auto_animate_rate = 0 if auto_animate_rate is None else max(1, int(auto_animate_rate))
+			if reset_sequence_frame is True or self.sequence_frame is None or self.sequence_frame >= len(animation.sequences[sequence_name]):
 				self.sequence_frame = None
 				self.auto_animate_step = 0
 			return True

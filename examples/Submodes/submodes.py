@@ -1,8 +1,8 @@
 """ Submodes Jubilee app. """
 
-import random, sys
+import random
 from jubilee import App, Mode
-from jubilee.misc import Log, Misc
+from jubilee.misc import Misc
 
 class SubmodesApp(App):
 	""" Submodes app. """
