@@ -25,7 +25,7 @@
   - [Worker Class Reference](#worker-class-reference)
     - [Example Worker](#example-worker)
     - [Worker Class Fields and Methods](#worker-class-fields-and-methods)
-  - [config.txt](#config-txt)
+  - [config.toml](#config-toml)
   - [misc.py Reference](#misc-py-reference)
     - [Config](#config)
     - [Log](#log)
@@ -184,7 +184,7 @@ stop_keyboard_buffering()		# stops buffering keyboard input
 
 ### App State
 
-The App stores an `app_state` dict for app-wide data that should be available to all Modes. App state is saved incrementally via `set_app_state()` during normal operation and reloaded at startup to persist the state of the app. Because the app state uses `json.dumps` and `json.loads`, any such data must be JSON-serializable. If the App does not find an `app_state.txt` file at startup, it will look for an `app_state_start.txt` file and read it into an initial app state.
+The App stores an `app_state` dict for app-wide data that should be available to all Modes. App state is saved incrementally via `set_app_state()` during normal operation and reloaded at startup to persist the state of the app. Because the app state uses `json.dumps` and `json.loads`, any such data must be JSON-serializable. If the App does not find an `app_state.json` file at startup, it will look for an `app_state_start.json` file and read it into an initial app state.
 
 ```
 app_state: dict
@@ -393,9 +393,9 @@ An app can include an `images` folder, and a mode can include a `Mode_name/image
 ```
    ./images/
             background.jpg          # access as images['background']
-            player/
-                up_1.jpg, ...       # access as sequences['up']
-                idle.jpg            # access as sequences['idle']
+            player/                 # access as animations['player']
+                up_1.jpg, ...       #   .sequences['up'] (indexed frames)
+                idle.jpg            #   .sequences['idle'] (single frame)
 ```
 
 A sprite is an instance of a static image or animation at a given x/y coordinate. Calling `mode.add_sprite(sprite)` binds a sprite to the app and adds it to the mode.sprites array. During `draw()`, a mode can call `render_sprites()` to render all sprites. Each sprite can have a `process()` method that is automatically called during `mode.process()`.
@@ -483,49 +483,51 @@ write_config()								 # writes config and sends to app
 update_config(key, value)					 # writes updated config; sends to app
 ```
 
-## config.txt
+## config.toml
 
-This file contains high-level Jubilee application configuration features. App loads this file into App.config at startup; if the file does not exist, default values provided in Worker are used. A first Worker process periodically checks this file for updates and automatically reloads it. 
+This file contains high-level Jubilee application configuration in TOML format. App loads this file into App.config at startup; if the file does not exist, default values provided in Worker are used. A first Worker process periodically checks this file for updates and automatically reloads it.
+
+TOML has no null type. To indicate None/unset, omit the key entirely. The defaults dict in Worker provides None for omitted keys like `font` and `wifi_ping_target`.
 
 ```
-"screen_resolution": [320, 240] 			 # screen resolution for drawing
-"screen_rotation": 0                         # 90/180/270-degree rotations
-"headless": false                            # display vs. no-display configurations
-"pointer_input": true						 # receive pointer (mouse or touch) events (Linux only)
-"keyboard_input": true						 # receive keyboard events
-"screen_scale": [[0, 319, -1], [0, 239, 1]]  # screen range/direction for pointer input
-"swap_axes": false                           # swap X/Y axes for touch input (Linux only)
-"display_fps": false                         # show FPS counter on screen
-"app_process_fps": 20       			     # app.process() fps
-"app_draw_fps": 20							 # app.draw() fps
-"nosound": false                             # sound vs. no-sound configurations
-"sound_retainer": false                      # keep audio hardware active to prevent pops
-"modal": true								 # app_process => current mode or all modes
-"worker_process_fps": 20			         # worker.process() fps
-"worker_process_periodic_fps": 1             # worker.process_periodic() fps
-"persist_app_state": true					 # automatically save/load app_state
-"app_state_filename": "app_state.txt"		 # file to store app_state dict
-"app_state_start_filename": "app_state_start.txt"  # file to store initial app_state dict
-"log_rotation": "daily"                      # log rotation: monthly, daily, hourly
-"font": null	    					     # default font name (null = first available system font)
-"font_size": 14								 # font size on RPi/Linux
-"font_size_desktop": 15						 # font size on macOS (desktop fonts render differently)
-"wifi_watchdog": false                       # enable WiFi watchdog (Linux only)
-"wifi_ping_target": null                     # ping target; null = auto-detect gateway
-"wifi_ping_interval": 300                    # seconds between checks (default: 5 min)
-"wifi_interface": "wlan0"                    # WiFi interface name
-"wifi_ping_count": 3                         # pings per connectivity check
-"wifi_ping_timeout": 5                       # seconds per ping timeout
-"wifi_reboot_enabled": true                  # allow reboot as last resort
-"wifi_reboot_daily_max": 3                   # max reboots per calendar day
-"wifi_reboot_after_failures": 3              # consecutive full failures before reboot
+screen_resolution = [320, 240]                # screen resolution for drawing
+screen_rotation = 0                           # 90/180/270-degree rotations
+headless = false                              # display vs. no-display configurations
+# pointer_input = true                        # receive pointer (mouse or touch) events (Linux only)
+keyboard_input = true                         # receive keyboard events
+screen_scale = [[0, 319, -1], [0, 239, 1]]   # screen range/direction for pointer input
+# swap_axes = false                           # swap X/Y axes for touch input (Linux only)
+# display_fps = false                         # show FPS counter on screen
+app_process_fps = 20                          # app.process() fps
+app_draw_fps = 20                             # app.draw() fps
+nosound = false                               # sound vs. no-sound configurations
+# sound_retainer = false                      # keep audio hardware active to prevent pops
+modal = true                                  # app_process => current mode or all modes
+worker_process_fps = 20                       # worker.process() fps
+worker_process_periodic_fps = 1               # worker.process_periodic() fps
+persist_app_state = true                      # automatically save/load app_state
+app_state_filename = "app_state.json"         # file to store app_state dict
+app_state_start_filename = "app_state_start.json"  # file to store initial app_state dict
+log_rotation = "daily"                        # log rotation: monthly, daily, hourly
+# font = "arial"                              # default font name (omit for first available system font)
+font_size = 14                                # font size on RPi/Linux
+font_size_desktop = 15                        # font size on macOS (desktop fonts render differently)
+wifi_watchdog = false                         # enable WiFi watchdog (Linux only)
+# wifi_ping_target = "192.168.1.1"            # ping target (omit to auto-detect gateway)
+wifi_ping_interval = 300                      # seconds between checks (default: 5 min)
+wifi_interface = "wlan0"                      # WiFi interface name
+wifi_ping_count = 3                           # pings per connectivity check
+wifi_ping_timeout = 5                         # seconds per ping timeout
+wifi_reboot_enabled = true                    # allow reboot as last resort
+wifi_reboot_daily_max = 3                     # max reboots per calendar day
+wifi_reboot_after_failures = 3                # consecutive full failures before reboot
 ```
 
 ### WiFi Watchdog
 
 The WiFi watchdog monitors network connectivity on Linux (Raspberry Pi) devices and performs escalating recovery when connectivity is lost. It also serves as a keepalive mechanism, sending periodic pings to prevent the WiFi firmware from entering problematic idle states.
 
-The watchdog is disabled by default. Enable it by setting `"wifi_watchdog": true` in config.txt. It only operates on Linux; on other platforms it silently does nothing.
+The watchdog is disabled by default. Enable it by setting `wifi_watchdog = true` in config.toml. It only operates on Linux; on other platforms it silently does nothing.
 
 The watchdog runs on the first Worker (same as config and log managers). It checks connectivity at the configured interval (`wifi_ping_interval`, default 5 minutes). When a ping to the target fails, it performs escalating recovery:
 
@@ -550,15 +552,15 @@ if self.app.wifi_connected is False:
 The following classes and functions are available in jubilee.misc:
 
 ### Config
-Operations default to get_filename() filename, which is usually `config.txt`.
+Operations default to get_filename() filename, which is usually `config.toml`. Config files use TOML format. None values are stripped on save (TOML has no null; omit keys to indicate None/unset).
 ```
 load(filename: str=None, defaults: dict=None) -> dict  # combines file data and defaults
-save(config: dict=None, filename: str=None)
+save(config: dict=None, filename: str=None)            # strips None values before writing
 get_filename() -> str
 ```
 
 ### Log
-Operations default to get_filename() filename, which is usually `log.txt`. The first worker usually rotates the log during process_periodic at a frequency defined in `config.txt`.
+Operations default to get_filename() filename, which is usually `log.txt`. The first worker usually rotates the log during process_periodic at a frequency defined in `config.toml`.
 ```
 ERROR, WARNING, INFO, DEBUG                             # const levels
 reset(filename: str=None)

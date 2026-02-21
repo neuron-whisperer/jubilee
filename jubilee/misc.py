@@ -3,7 +3,7 @@
 import datetime, hmac, inspect, json, logging, os, shutil, socket, sys, tempfile, time
 from enum import Enum
 from hashlib import sha256
-import __main__, random_user_agent.params, random_user_agent.user_agent, requests
+import __main__, random_user_agent.params, random_user_agent.user_agent, requests, tomlkit
 
 class Config:
 	""" Config class. """
@@ -13,7 +13,7 @@ class Config:
 		""" Loads config file.
 
 				Args:
-					filename:			Filename, or default filename (config.txt).
+					filename:			Filename, or default filename (config.toml).
 					defaults:			Dict of default values to be used for any not indicated in file.
 
 				Returns:
@@ -27,7 +27,7 @@ class Config:
 				Log.info(f'{filename} does not exist - using defaults')
 			else:
 				with open(filename, 'rt', encoding='UTF-8') as f:
-					config = json.loads(f.read().strip())
+					config = tomlkit.loads(f.read()).unwrap()
 					return_dict.update(config)
 		except Exception as e:
 			Log.error(str(e))
@@ -36,18 +36,21 @@ class Config:
 	@classmethod
 	def save(cls, config: dict=None, filename: str=None):
 		""" Saves config dict atomically to prevent corruption on power loss.
+				None values are stripped before writing (TOML has no null;
+				omitting a key indicates None/unset).
 
 				Args:
 					config:				Config dict to save, or empty dict if None.
-					filename:			Filename, or default filename (config.txt).
+					filename:			Filename, or default filename (config.toml).
 		"""
 
 		filename = filename or cls.get_filename()
+		filtered = {k: v for k, v in (config or {}).items() if v is not None}
 		dir_name = os.path.dirname(os.path.abspath(filename))
 		fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 		try:
 			with os.fdopen(fd, 'wt', encoding='UTF-8') as f:
-				f.write(json.dumps(config or {}))
+				f.write(tomlkit.dumps(filtered))
 				f.flush()
 				os.fsync(f.fileno())
 			os.replace(tmp_path, filename)
@@ -66,7 +69,7 @@ class Config:
 			folder = os.path.dirname(os.path.realpath(__main__.__file__))
 		else:		# the above instruction fails for spawned processes with no file.
 			folder = os.getcwd()
-		return os.path.join(folder, 'config.txt')
+		return os.path.join(folder, 'config.toml')
 
 class Log:
 	""" Log class using Python logging module. """

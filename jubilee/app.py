@@ -46,7 +46,7 @@ class App:
 
 		# load config
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
-		self.config_filename = os.path.join(self.base_path, 'config.txt')
+		self.config_filename = os.path.join(self.base_path, 'config.toml')
 		self.config = Config.load(self.config_filename, defaults=Worker.config_defaults)
 
 		# init pygame
@@ -148,8 +148,8 @@ class App:
 
 		# app state
 		self.app_state = {}
-		self.app_state_filename = self.config.get('app_state_filename', 'app_state.txt')
-		self.app_state_start_filename = self.config.get('app_state_start_filename', 'app_state_start.txt')
+		self.app_state_filename = self.config.get('app_state_filename', 'app_state.json')
+		self.app_state_start_filename = self.config.get('app_state_start_filename', 'app_state_start.json')
 		self.persist_app_state = self.config.get('persist_app_state', True)
 		if self.persist_app_state is True:
 			self.load_app_state()

@@ -17,8 +17,8 @@ class Worker:
 		'worker_process_fps': 20,
 		'worker_process_periodic_fps': 1,
 		'persist_app_state': True,
-		'app_state_filename': 'app_state.txt',
-		'app_state_start_filename': 'app_state_start.txt',
+		'app_state_filename': 'app_state.json',
+		'app_state_start_filename': 'app_state_start.json',
 		'keyboard_input': True,
 		'log_rotation': 'daily',
 		'font_size': 14,
@@ -43,7 +43,7 @@ class Worker:
 		self.wifi_manager = wifi_manager
 		self.worker_process = None
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
-		self.config_filename = os.path.join(self.base_path, 'config.txt')
+		self.config_filename = os.path.join(self.base_path, 'config.toml')
 		self.config = Config.load(self.config_filename, defaults=self.config_defaults)
 		self.config_date = None
 		self.log_date = None

@@ -101,7 +101,7 @@ The Examples folder contains a variety of example projects that run right out of
 * **Modes** - A project that demonstrates two modes, packaged into two Mode classes.
 * **Submodes** - A project that demonstrates submodes.
 * **Script** - A project that demonstrates mode scripting.
-* **Screen_Rotation** - A project that demonstrates 180-degree screen rotation. (Can also change screen_rotation in config.txt to 90 or 270.)
+* **Screen_Rotation** - A project that demonstrates 180-degree screen rotation. (Can also change screen_rotation in config.toml to 90 or 270.)
 
 These projects can be used for quick reference, as sandboxes to experiment with the features, or as templates for new projects with similar features.
 
@@ -119,7 +119,7 @@ As shown in the Hello World app, a Jubilee app features subclasses of the App, W
 
 Additional features:
 
-* **Configuration:** Some features of Jubilee are declared in `config.txt`, which App and Worker load during initialization. The App class features a set of default values in case `config.txt` is not present. During runtime, one Worker class (by default, the first one created) periodically checks the modification date of `config.txt` and pushes updates to the App via the messaging queue, which reduces redundant file-system operations and preserves the lifespan of flash-based storage.
+* **Configuration:** Some features of Jubilee are declared in `config.toml`, which App and Worker load during initialization. The App class features a set of default values in case `config.toml` is not present. During runtime, one Worker class (by default, the first one created) periodically checks the modification date of `config.toml` and pushes updates to the App via the messaging queue, which reduces redundant file-system operations and preserves the lifespan of flash-based storage.
 
 * **Global, Persistent Application State:** The App stores an `app_state` dict containing application-wide data for all Modes. App state is saved incrementally via `set_app_state()` during normal operation and reloaded at startup to persist the state of the App. The App can also provide a default `app_state` to be used when a saved `app_state` is not found on startup.
 

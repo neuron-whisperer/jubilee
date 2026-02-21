@@ -1,0 +1,62 @@
+# Jubilee Configuration
+# =====================
+
+# Run without display (for background/worker-only applications)
+headless = false
+
+# Run without sound
+nosound = false
+
+# Display resolution [width, height]
+screen_resolution = [320, 240]
+
+# Software screen rotation (0, 90, 180, or 270 degrees)
+screen_rotation = 0
+
+# Touchscreen calibration [[x_min, x_max, x_direction], [y_min, y_max, y_direction]]
+screen_scale = [[0, 319, -1], [0, 239, 1]]
+
+# App process rate (Hz)
+app_process_fps = 20
+
+# App draw rate (Hz)
+app_draw_fps = 20
+
+# Process only the active mode (true) or all modes (false)
+modal = true
+
+# Worker process rate (Hz)
+worker_process_fps = 20
+
+# Worker periodic process rate (Hz)
+worker_process_periodic_fps = 1
+
+# Save and restore app state between sessions
+persist_app_state = true
+
+# App state filename (relative to CWD, or absolute path)
+app_state_filename = "app_state.json"
+
+# Initial app state template filename (relative to CWD, or absolute path)
+app_state_start_filename = "app_state_start.json"
+
+# Enable keyboard input
+keyboard_input = true
+
+# Log rotation interval ("daily", "monthly", or "hourly")
+log_rotation = "daily"
+
+# Font size for RPi/Linux
+font_size = 14
+
+# Font size for macOS desktop (renders differently than RPi)
+font_size_desktop = 15
+
+# Font name (omit to use first available system font)
+# font = "arial"
+
+# WiFi watchdog (Linux only)
+wifi_watchdog = false
+
+# WiFi ping target (omit to auto-detect gateway)
+# wifi_ping_target = "192.168.1.1"
