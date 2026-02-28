@@ -1,4 +1,5 @@
 **/.DS_Store
+**/log.txt
 dist/
 build/
 *.egg-info/
