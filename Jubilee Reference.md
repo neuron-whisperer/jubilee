@@ -34,6 +34,20 @@
 
 ## App Class Reference
 
+App constructor: `App(workers=None, project_path=None)`. The `project_path` parameter sets the root directory for all data files: config.toml, images/, sounds/, music/, script.txt, log.txt, logs/, app state, and mode resource folders. When omitted (or None), project_path defaults to the directory containing the main script (base_path), preserving backward compatibility with existing apps. When set, base_path still reflects the script location, but all data lookups use project_path.
+
+**When to use `project_path`:** Use it when source code and data files are in separate directories. The RPi App Framework convention places source in `src/` and data at the project root:
+
+```python
+import os
+
+if __name__ == '__main__':
+    project_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    MyApp(project_path=project_path).run()
+```
+
+This derives the project root as the parent of the directory containing the script (i.e., the parent of `src/`). When source and data are co-located in the same directory (as in the Jubilee examples), omit `project_path` — the default behavior works correctly.
+
 ### Example App
 
 ```
@@ -63,7 +77,8 @@ headless: bool=False                      # headless mode (defaults to False)
 screen_width, screen_height: int          # screen width and height
 screen_center: int                        # horizontal center (x/2)
 screen_middle: int                        # screen vertical middle (y/2)
-base_path: str                            # application base path
+base_path: str                            # directory containing the main script
+project_path: str                         # project root for data (default: base_path)
 init()                                    # called after base class __init__()
 add_worker(Worker: type)                  # add worker class to app
 add_workers([Worker, Worker])             # add several workers to app
@@ -184,7 +199,7 @@ stop_keyboard_buffering()		# stops buffering keyboard input
 
 ### App State
 
-The App stores an `app_state` dict for app-wide data that should be available to all Modes. App state is saved incrementally via `set_app_state()` during normal operation and reloaded at startup to persist the state of the app. Because the app state uses `json.dumps` and `json.loads`, any such data must be JSON-serializable. If the App does not find an `app_state.json` file at startup, it will look for an `app_state_start.json` file and read it into an initial app state.
+The App stores an `app_state` dict for app-wide data that should be available to all Modes. App state is saved incrementally via `set_app_state()` during normal operation and reloaded at startup to persist the state of the app. Because the app state uses `json.dumps` and `json.loads`, any such data must be JSON-serializable. If the App does not find an `app_state.json` file at startup, it will look for an `app_state_start.json` file and read it into an initial app state. Relative paths for app_state_filename and app_state_start_filename are resolved relative to project_path; absolute paths are used as-is.
 
 ```
 app_state: dict
@@ -468,6 +483,7 @@ class Example_Worker(Worker):
 ```
 name: str									 # worker name
 config: dict								 # config
+project_path: str							 # project root (set from App via Config.project_path)
 config_manager: bool						 # whether this worker manages the config
 log_manager: bool						     # whether this worker manages the log
 wifi_manager: bool						     # whether this worker manages the wifi watchdog
@@ -552,16 +568,18 @@ if self.app.wifi_connected is False:
 The following classes and functions are available in jubilee.misc:
 
 ### Config
-Operations default to get_filename() filename, which is usually `config.toml`. Config files use TOML format. None values are stripped on save (TOML has no null; omit keys to indicate None/unset).
+Operations default to get_filename() filename, which is usually `config.toml`. Config files use TOML format. None values are stripped on save (TOML has no null; omit keys to indicate None/unset). When App sets a project_path, Config.get_filename() resolves relative to that path.
 ```
+project_path: str=None                                 # class var; set by App
 load(filename: str=None, defaults: dict=None) -> dict  # combines file data and defaults
 save(config: dict=None, filename: str=None)            # strips None values before writing
 get_filename() -> str
 ```
 
 ### Log
-Operations default to get_filename() filename, which is usually `log.txt`. The first worker usually rotates the log during process_periodic at a frequency defined in `config.toml`.
+Operations default to get_filename() filename, which is usually `log.txt`. The first worker usually rotates the log during process_periodic at a frequency defined in `config.toml`. When App sets a project_path, Log.get_filename() resolves relative to that path.
 ```
+project_path: str=None                                  # class var; set by App
 ERROR, WARNING, INFO, DEBUG                             # const levels
 reset(filename: str=None)
 backup(filename: str=None, backup_filename: str=None, backup_folder: str=None)

@@ -8,6 +8,8 @@ import __main__, random_user_agent.params, random_user_agent.user_agent, request
 class Config:
 	""" Config class. """
 
+	project_path = None		# set by App to override default path resolution
+
 	@classmethod
 	def load(cls, filename: str=None, defaults: dict=None) -> dict:
 		""" Loads config file.
@@ -61,11 +63,13 @@ class Config:
 				pass
 			raise
 
-	@staticmethod
-	def get_filename() -> str:
+	@classmethod
+	def get_filename(cls) -> str:
 		""" Gets default filename. """
 
-		if hasattr(__main__, '__file__'):
+		if cls.project_path is not None:
+			folder = cls.project_path
+		elif hasattr(__main__, '__file__'):
 			folder = os.path.dirname(os.path.realpath(__main__.__file__))
 		else:		# the above instruction fails for spawned processes with no file.
 			folder = os.getcwd()
@@ -78,6 +82,8 @@ class Log:
 	WARNING = logging.WARNING
 	INFO = logging.INFO
 	DEBUG = logging.DEBUG
+
+	project_path = None		# set by App to override default path resolution
 
 	loggers = {}
 	file_handlers = {}
@@ -297,11 +303,13 @@ class Log:
 		filename = filename or cls.get_filename()
 		return None if not os.path.isfile(filename) else os.path.getmtime(filename)
 
-	@staticmethod
-	def get_filename() -> str:
+	@classmethod
+	def get_filename(cls) -> str:
 		""" Returns default filename. """
 
-		if hasattr(__main__, '__file__'):
+		if cls.project_path is not None:
+			folder = cls.project_path
+		elif hasattr(__main__, '__file__'):
 			folder = os.path.dirname(os.path.realpath(__main__.__file__))
 		else:		 	# the above instruction fails for spawned processes with no file
 			folder = os.getcwd()

@@ -48,9 +48,9 @@ class Mode:
 	def load_resources(self):
 		""" Mode resource loading. Called during app.add_mode() after init(). """
 
-		self.images_path = os.path.join(self.app.base_path, self.name, 'images')
+		self.images_path = os.path.join(self.app.project_path, self.name, 'images')
 		self.images, self.animations = self.app.load_images(self.images_path)
-		self.sounds_path = os.path.join(self.app.base_path, self.name, 'sounds')
+		self.sounds_path = os.path.join(self.app.project_path, self.name, 'sounds')
 		self.sounds = self.app.load_sounds(self.sounds_path)
 
 	def on_enter(self, mode_parameters: dict=None):

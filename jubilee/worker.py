@@ -43,7 +43,8 @@ class Worker:
 		self.wifi_manager = wifi_manager
 		self.worker_process = None
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
-		self.config_filename = os.path.join(self.base_path, 'config.toml')
+		self.project_path = Config.project_path or self.base_path
+		self.config_filename = os.path.join(self.project_path, 'config.toml')
 		self.config = Config.load(self.config_filename, defaults=self.config_defaults)
 		self.config_date = None
 		self.log_date = None
@@ -78,6 +79,10 @@ class Worker:
 		""" Worker run loop. """
 
 		try:
+			# restore class-level paths for child process
+			Log.project_path = self.project_path
+			Config.project_path = self.project_path
+
 			Log.info('Starting')
 			self.start_worker()
 

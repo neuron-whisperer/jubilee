@@ -27,7 +27,13 @@ class App:
 
 	""" App class for app framework. """
 
-	def __init__(self, workers=None):
+	def __init__(self, workers=None, project_path=None):
+
+		# resolve paths
+		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
+		self.project_path = os.path.realpath(project_path) if project_path is not None else self.base_path
+		Log.project_path = self.project_path
+		Config.project_path = self.project_path
 
 		# single-instance check
 		if self.check_running_process():
@@ -45,8 +51,7 @@ class App:
 			Log.set_console_level(Log.DEBUG)
 
 		# load config
-		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
-		self.config_filename = os.path.join(self.base_path, 'config.toml')
+		self.config_filename = os.path.join(self.project_path, 'config.toml')
 		self.config = Config.load(self.config_filename, defaults=Worker.config_defaults)
 
 		# init pygame
@@ -149,7 +154,11 @@ class App:
 		# app state
 		self.app_state = {}
 		self.app_state_filename = self.config.get('app_state_filename', 'app_state.json')
+		if not os.path.isabs(self.app_state_filename):
+			self.app_state_filename = os.path.join(self.project_path, self.app_state_filename)
 		self.app_state_start_filename = self.config.get('app_state_start_filename', 'app_state_start.json')
+		if not os.path.isabs(self.app_state_start_filename):
+			self.app_state_start_filename = os.path.join(self.project_path, self.app_state_start_filename)
 		self.persist_app_state = self.config.get('persist_app_state', True)
 		if self.persist_app_state is True:
 			self.load_app_state()
@@ -162,11 +171,11 @@ class App:
 		self.script = None
 
 		# images
-		self.images_path = os.path.join(self.base_path, 'images')
+		self.images_path = os.path.join(self.project_path, 'images')
 		self.images, self.animations = self.load_images(self.images_path)
 
 		# sounds
-		self.sounds_path = os.path.join(self.base_path, 'sounds')
+		self.sounds_path = os.path.join(self.project_path, 'sounds')
 		self.sounds = self.load_sounds(self.sounds_path)
 		self.sound_volume = 100
 		self.sound_retainer = None
@@ -174,7 +183,7 @@ class App:
 			self.set_sound_retainer(True)
 
 		# music
-		self.music_path = os.path.join(self.base_path, 'music')
+		self.music_path = os.path.join(self.project_path, 'music')
 		self.music_volume = 100
 		self.music_fade_steps = None
 		self.music_fade_step = None
@@ -1033,7 +1042,7 @@ class App:
 			return
 
 		if enable:
-			filename = os.path.join(self.base_path, 'sounds', 'sound_retainer.wav')
+			filename = os.path.join(self.project_path, 'sounds', 'sound_retainer.wav')
 			if os.path.isfile(filename) is False:
 				Log.error(f'{filename} does not exist')
 				return
@@ -1054,8 +1063,8 @@ class App:
 
 		paths = []
 		if self.mode is not None:
-			paths.append(os.path.join(self.base_path, self.mode.name, 'music', music_name))
-		paths.append(os.path.join(self.base_path, 'music', music_name))
+			paths.append(os.path.join(self.project_path, self.mode.name, 'music', music_name))
+		paths.append(os.path.join(self.project_path, 'music', music_name))
 		paths.append(music_name)
 		music = next(filter(os.path.isfile, paths), None)
 		return music
@@ -1174,7 +1183,7 @@ class App:
 
 		# load script
 		self.script = []
-		script_filename = os.path.join(self.base_path, 'script.txt')
+		script_filename = os.path.join(self.project_path, 'script.txt')
 		if os.path.isfile(script_filename) is False:
 			return
 		with open(script_filename, 'rt', encoding='UTF-8') as f:
