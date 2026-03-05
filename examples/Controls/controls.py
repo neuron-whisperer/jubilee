@@ -31,13 +31,18 @@ class ControlsMode(Mode):
 
 		self.click_timer = 8
 
+	def process(self):
+		""" ControlsMode process method. """
+
+		if self.click_timer > 0:
+			self.click_timer -= 1
+
 	def draw(self):
 		""" ControlsMode draw method. """
 
 		self.app.draw_text('Status:', 100, 20)
 		if self.click_timer > 0:
-			color = int(255 * self.click_timer / 8) 
-			self.click_timer -= 1
+			color = int(255 * self.click_timer / 8)
 			self.app.draw_text('Click!', 180, 20, color=(color, color, color))
 
 if __name__ == '__main__':

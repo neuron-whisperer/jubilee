@@ -10,6 +10,11 @@ class TouchInterface(PointerInterface):
 	def __init__(self, resolution: list=None, scale: list=None, swap_axes: bool=False):
 		super().__init__()
 		self.touch = None
+		self.resolution = resolution
+		self.scale = scale
+		self.swap_axes = swap_axes
+		if resolution is None or scale is None:
+			Log.warning('resolution and/or scale not specified')
 		try:
 			# probe /dev/input/event* to determine which one has bustype 24
 			device_number = None
@@ -32,12 +37,6 @@ class TouchInterface(PointerInterface):
 		except Exception as e:
 			Log.error(f'Exception during grab: {e}')
 			self.touch = None
-			return
-		self.resolution = resolution
-		self.scale = scale
-		if resolution is None or scale is None:
-			Log.warning('resolution and/or scale not specified')
-		self.swap_axes = swap_axes
 
 	def detect_events(self) -> bool:
 		""" Detect touch events. """
@@ -48,15 +47,15 @@ class TouchInterface(PointerInterface):
 		try:
 			for event in self.touch.read():
 				if event.type == evdev.ecodes.EV_ABS:
-					if event.code == 54:
+					if event.code == evdev.ecodes.ABS_MT_POSITION_X:
 						scale_range = self.scale[0][1] - self.scale[0][0]
 						if scale_range != 0:
 							self.x = int(((event.value - self.scale[0][0]) / scale_range * self.scale[0][2] - (self.scale[0][2] - 1) / 2) * self.resolution[0])
-					elif event.code == 53:
+					elif event.code == evdev.ecodes.ABS_MT_POSITION_Y:
 						scale_range = self.scale[1][1] - self.scale[1][0]
 						if scale_range != 0:
 							self.y = int(((event.value - self.scale[1][0]) / scale_range * self.scale[1][2] - (self.scale[1][2] - 1) / 2) * self.resolution[1])
-				elif event.type == evdev.ecodes.EV_KEY and event.code == 330 and event.value == 1:
+				elif event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.BTN_TOUCH and event.value == 1:
 					if self.x is not None and self.y is not None:
 
 						if self.swap_axes is True:
@@ -64,7 +63,7 @@ class TouchInterface(PointerInterface):
 
 						self.down = True
 						touched = True
-				elif event.type == evdev.ecodes.EV_KEY and event.code == 330 and event.value == 0:
+				elif event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.BTN_TOUCH and event.value == 0:
 					self.down = False
 					self.x = None
 					self.y = None

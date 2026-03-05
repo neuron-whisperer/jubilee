@@ -1,7 +1,6 @@
 """ Screen_Rotation Jubilee app. """
 
 from jubilee import App, Mode
-from jubilee.controls import Button
 
 class ScreenRotationApp(App):
 	""" ScreenRotation app. """

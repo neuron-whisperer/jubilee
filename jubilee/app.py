@@ -901,7 +901,7 @@ class App:
 				None or zero steps will cancel current fade.
 		"""
 
-		if steps is None or steps == 0:
+		if not steps:
 			self.display_fade_steps = None
 			self.display_fade_step = None
 			self.display_fade_end_mode = None
@@ -1108,6 +1108,8 @@ class App:
 	def start_music_fade(self, steps: int):
 		""" Starts a music fade over a given number of steps. """
 
+		if not steps:
+			return
 		self.music_fade_steps = steps
 		self.music_fade_step = 0
 
@@ -1307,7 +1309,7 @@ class App:
 		if not self.font_list:
 			Log.warning('No fonts available to cycle through')
 			return
-		current_index = len(self.font_list) if self.standard_font_name not in self.font_list else self.font_list.index(self.standard_font_name)
+		current_index = -1 if self.standard_font_name not in self.font_list else self.font_list.index(self.standard_font_name)
 		new_standard_font = self.font_list[(current_index + 1) % len(self.font_list)]
 		self.update_config('font', new_standard_font)
 		Log.info(f'Changed font to {new_standard_font}')
