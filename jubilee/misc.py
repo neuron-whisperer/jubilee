@@ -1,6 +1,8 @@
 """ Misc classes and functions. """
 
-import datetime, hmac, inspect, json, logging, os, shutil, socket, sys, tempfile, time
+import copy, datetime, hmac, inspect, json, logging, os, shutil, socket, sys, tempfile, time
+from logging.handlers import WatchedFileHandler
+from urllib.parse import urlsplit, urlunsplit
 from enum import Enum
 from hashlib import sha256
 import __main__, random_user_agent.params, random_user_agent.user_agent, requests, tomlkit
@@ -11,7 +13,7 @@ class Config:
 	project_path = None		# set by App to override default path resolution
 
 	@classmethod
-	def load(cls, filename: str=None, defaults: dict=None) -> dict:
+	def load(cls, filename: str=None, defaults: dict=None, strict: bool=False) -> dict:
 		""" Loads config file.
 
 				Args:
@@ -22,23 +24,25 @@ class Config:
 					arg:					Config dict, or copy of default dict (or empty dict) on failure.
 		"""
 
-		return_dict = (defaults or {}).copy()
+		return_dict = copy.deepcopy(defaults or {})
 		try:
 			filename = filename or cls.get_filename()
-			if os.path.isfile(filename) is False:
+			if not strict and os.path.isfile(filename) is False:
 				Log.info(f'{filename} does not exist - using defaults')
 			else:
 				with open(filename, 'rt', encoding='UTF-8') as f:
 					config = tomlkit.loads(f.read()).unwrap()
 					return_dict.update(config)
 		except Exception as e:
+			if strict:
+				raise
 			Log.error(str(e))
 		return return_dict
 
 	@classmethod
 	def save(cls, config: dict=None, filename: str=None):
 		""" Saves config dict atomically to prevent corruption on power loss.
-				None values are stripped before writing (TOML has no null;
+				Top-level None values are stripped before writing (TOML has no null;
 				omitting a key indicates None/unset).
 
 				Args:
@@ -98,9 +102,9 @@ class Log:
 	def parse(cls, record: str) -> dict|None:
 		""" Parses log message string into fields. """
 
-		record = record.strip()
+		record = record.rstrip('\r\n')
 		try:
-			fields = record.split('\t')
+			fields = record.split('\t', 4)
 			if len(fields) != 5:
 				return None
 			dt = datetime.datetime.strptime(fields[0].strip(), '%Y%m%d %H:%M:%S')
@@ -109,15 +113,14 @@ class Log:
 			level = fields[3].strip()
 			message = fields[4].strip()
 			return {'dt': dt, 'class': class_name, 'method': method_name, 'level': level, 'message': message}
-		except Exception as e:
-			Log.error(f'Could not parse {record}: {e}')
+		except (ValueError, TypeError):
 			return None
 
 	@classmethod
 	def get_logger(cls, filename: str=None) -> logging.Logger:
 		""" Gets or creates a logger for the specified file. """
 
-		filename = filename or cls.get_filename()
+		filename = os.path.abspath(filename or cls.get_filename())
 		if filename in cls.loggers:
 			return cls.loggers[filename]
 
@@ -125,7 +128,8 @@ class Log:
 		logger = logging.getLogger(filename)
 		logger.setLevel(cls.DEBUG)		# catch all errors, but filter for output
 		logger.propagate = False
-		file_handler = logging.FileHandler(filename, mode='a', encoding='UTF-8')
+		# Other processes must reopen log.txt after the manager rotates it.
+		file_handler = WatchedFileHandler(filename, mode='a', encoding='UTF-8')
 		file_handler.setLevel(cls.file_levels.get(filename, cls.INFO))
 		file_handler.setFormatter(cls.formatter)
 		logger.addHandler(file_handler)
@@ -142,7 +146,7 @@ class Log:
 		return cls.loggers[filename]
 
 	@classmethod
-	def get_caller_info(cls, stack_depth: int=3) -> (str|None, str|None):
+	def get_caller_info(cls, stack_depth: int=2) -> (str|None, str|None):
 		""" Extracts caller class and function names from stack.
 
 		Args:
@@ -161,7 +165,7 @@ class Log:
 			class_name = ''
 			if 'self' in frame.f_locals:
 				class_name = frame.f_locals['self'].__class__.__name__
-			elif 'cls' in frame.f_locals:
+			elif isinstance(frame.f_locals.get('cls'), type):
 				class_name = frame.f_locals['cls'].__name__
 			elif hasattr(frame.f_code, 'co_qualname'):
 				qualname = frame.f_code.co_qualname
@@ -177,7 +181,7 @@ class Log:
 	def reset(cls, filename: str=None):
 		""" Resets log at specified filename or default filename (log.txt). """
 
-		filename = filename or cls.get_filename()
+		filename = os.path.abspath(filename or cls.get_filename())
 		if filename in cls.loggers:
 			logger = cls.loggers[filename]
 			if filename in cls.file_handlers:
@@ -204,7 +208,7 @@ class Log:
 		"""
 
 		try:
-			filename = filename or cls.get_filename()
+			filename = os.path.abspath(filename or cls.get_filename())
 			if not os.path.isfile(filename):  # no log to backup
 				return True
 
@@ -225,9 +229,12 @@ class Log:
 				current_time = datetime.datetime.now().strftime('%Y%m%d_%H%M%S.%f')
 				backup_filename = f'log_{current_time}.txt'
 			backup_filename = os.path.join(backup_folder, backup_filename)
+			if os.path.exists(backup_filename):
+				stem, extension = os.path.splitext(backup_filename)
+				backup_filename = f'{stem}_{time.time_ns()}{extension}'
 			shutil.move(filename, backup_filename)
 
-			cls.info(f'Backed up previous log ({backup_filename}) and starting new log')
+			cls.info(f'Backed up previous log ({backup_filename}) and starting new log', filename=filename)
 			return True
 
 		except Exception as e:
@@ -238,7 +245,7 @@ class Log:
 	def set_file_level(cls, level: int, filename: str=None):
 		""" Set the logging level for a specific file. """
 
-		filename = filename or cls.get_filename()
+		filename = os.path.abspath(filename or cls.get_filename())
 		cls.file_levels[filename] = level
 		if filename in cls.file_handlers:
 			cls.file_handlers[filename].setLevel(level)
@@ -257,7 +264,8 @@ class Log:
 
 		class_name, function_name = cls.get_caller_info()
 		logger = cls.get_logger(filename)
-		logger.error(str(message), extra={'class_name': class_name, 'function_name': function_name})
+		logger.error(str(message), exc_info=sys.exc_info()[0] is not None,
+			extra={'class_name': class_name, 'function_name': function_name})
 
 	@classmethod
 	def warning(cls, message, filename: str=None):
@@ -395,19 +403,20 @@ class Misc:
 			if result is False:
 				return (None, f'Error signing request: {message}')
 			url = message
-		headers = headers or {}
-		if cls.user_agent is None:
-			cls.user_agent = cls.choose_user_agent()
-		user_agent = cls.choose_user_agent() if randomize_user_agent else cls.user_agent
 		status_code = None
-		method = 'POST' if data is not None else (method or 'GET')
+		method = (method or ('POST' if data is not None else 'GET')).upper()
+		if method not in ('GET', 'POST'):
+			return (None, f'Unsupported HTTP method: {method}')
 		try:
+			headers = requests.structures.CaseInsensitiveDict(headers or {})
+			if 'User-Agent' not in headers:
+				if cls.user_agent is None:
+					cls.user_agent = cls.choose_user_agent()
+				headers['User-Agent'] = cls.choose_user_agent() if randomize_user_agent else cls.user_agent
 			if method.upper() == 'GET':
-				headers.setdefault('User-Agent', user_agent)
 				response = requests.get(url, headers=headers, timeout=timeout)
 				status_code = response.status_code
 			else:
-				headers.setdefault('User-Agent', user_agent)
 				headers.setdefault('Content-type', 'application/json')
 				response = requests.post(url, headers=headers, json=data, timeout=timeout)
 				status_code = response.status_code
@@ -433,10 +442,15 @@ class Misc:
 			return (False, 'URL not specified')
 		if password is None:
 			return (False, 'Password not specified')
-		timestamp = int(time.time()) if timestamp is None else int(timestamp)
-		url = f'{url}&ts={timestamp}'
-		signature = hmac.new(password.encode('utf-8'), url.encode('utf-8'), sha256).hexdigest()
-		return (True, url + '&hash=' + signature)
+		try:
+			timestamp = int(time.time()) if timestamp is None else int(timestamp)
+			parts = urlsplit(url)
+			query = parts.query + ('&' if parts.query else '') + f'ts={timestamp}'
+			unsigned = urlunsplit((parts.scheme, parts.netloc, parts.path, query, ''))
+			signature = hmac.new(password.encode('utf-8'), unsigned.encode('utf-8'), sha256).hexdigest()
+			return (True, urlunsplit((parts.scheme, parts.netloc, parts.path, query + '&hash=' + signature, parts.fragment)))
+		except (TypeError, ValueError, AttributeError) as e:
+			return (False, str(e))
 
 	@classmethod
 	def get_local_ip_address(cls) -> (bool, str):
@@ -464,10 +478,10 @@ class Misc:
 					arg2:					request duration (in seconds), or error message on failure.
 		"""
 
-		start = time.time()
+		start = time.monotonic()
 		status_code, response = cls.http_request('https://google.com')
 		success = (status_code == 200)
-		response = (time.time() - start) if status_code == 200 else response
+		response = (time.monotonic() - start) if status_code == 200 else response
 		return (success, response)
 
 	@staticmethod
@@ -489,7 +503,9 @@ class Misc:
 					arg:					RGB tuple, or None on error.
 		"""
 
-		if isinstance(color, tuple):
+		if isinstance(color, Color):
+			color_tuple = color.value
+		elif isinstance(color, tuple):
 			color_tuple = color
 		elif isinstance(color, str):
 			color_tuple = _color_lookup.get(color.lower())
@@ -498,6 +514,6 @@ class Misc:
 		else:
 			try:
 				color_tuple = Color[color].value
-			except KeyError:
+			except (KeyError, TypeError):
 				return None
-		return tuple(int(c * color_scale) for c in color_tuple) if color_scale else color_tuple
+		return tuple(int(c * color_scale) for c in color_tuple) if color_scale is not None else color_tuple

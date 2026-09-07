@@ -34,9 +34,69 @@
 
 ## App Class Reference
 
+### Version 0.44 Corrections
+
+Version 0.44 includes the following corrections:
+
+- Apps without Modes still process events and exchange Worker messages. Worker
+  names must be unique; duplicate additions raise ValueError without replacing
+  the original. Shutdown waits two seconds for Workers, then terminates or kills
+  unresponsive processes. Fatal run-loop errors propagate after cleanup.
+- Invalid mode/submode names leave the current selection intact. set_mode()
+  copies caller parameters, adds previous_mode, and forwards the context to a
+  requested submode's enter handler.
+- Explicit blit(flags=...) is respected; only omission selects automatic SDL2
+  alpha blending. Zero per-axis scales work. Hue shifts preserve pixel alpha,
+  surface alpha, and transformed colorkeys. Float stroke widths convert to int.
+- Music fades start at the actual playback volume, including per-track volume
+  overrides. A new track cancels the old fade. Zero/negative steps cancel fades.
+  Enabling an active sound retainer is a no-op.
+- Mouse input uses the left button and event coordinates. A press/release in one
+  update still releases the control. Touch input uses complete SYN_REPORT
+  packets, clamps to valid pixels, and swaps normalized axes before scaling.
+  The device selector retains the existing bustype-24 hardware restriction.
+- SelectButton.set_items() refreshes the caption/value even at the same index.
+  Omitting values retains an existing same-length mapping. Invalid mappings are
+  logged and cleared. Removing a selected control releases it immediately.
+- Unresolved animation names remain available for lookup after resource loading.
+  Zero auto_animate_rate disables animation, including constructor/set_sequence
+  arguments. Invalid frame indices return False. Missing images clear dimensions.
+  Transforms are cached: after editing a static Surface's pixels in place, call
+  set_static_image(surface) again; replace animation frames rather than mutating
+  their pixels in place.
+- Config.load() accepts strict=False; True propagates read/parse errors instead
+  of falling back to defaults. Missing files return defaults only in non-strict
+  mode; strict mode raises FileNotFoundError. Defaults are
+  independently copied. Worker reload failures keep the previous config and
+  retry later. Failed update_config() writes restore previous values and propagate
+  to the message handler for logging. IPC config values must be JSON-serializable.
+  A nonpositive worker_process_periodic_fps disables periodic callbacks/managers.
+- save_app_state() and set_app_state() return a success boolean. Failed key saves
+  roll back the in-memory change; malformed/non-object state loads as an empty
+  dictionary with a logged error, and saving is blocked until a successful reload.
+  Invalid scenes do not change saved scene state.
+- WiFi recovery waits dispatch normal App messages as well as exit. Gateway
+  detection is scoped to wifi_interface. A missing gateway counts as failed
+  connectivity and is re-detected during recovery, not silently ignored.
+- The WiFi reboot budget is stored in project_path/wifi_reboot_state.toml before
+  reboot. An absent file initializes a new zero-count budget; a broken symlink
+  does not. It counts attempts, even failed shutdown commands. Unreadable/invalid
+  state or a failed write prevents reboot. Preserve this file across deployments
+  and restarts. The budget uses the local calendar date and assumes one WiFi
+  manager for the project directory.
+- Log records identify the direct caller. Unix writers reopen after another
+  process rotates the log. Named backup collisions get unique suffixes. parse()
+  preserves tabs in messages and rejects bad records without logging more errors.
+- Explicit HTTP GET/POST wins over the data argument. Other methods return an
+  error, not a silent POST. Caller headers are copied. Signing creates a query
+  when needed and keeps fragments outside the signed/transmitted URL portion.
+
+Remaining limitation: check_running_process() is a best-effort process-name
+heuristic, not an atomic lock or reliable packaged-executable singleton guard.
+
 App constructor: `App(workers=None, project_path=None)`. The `project_path` parameter sets the root directory for all data files: config.toml, images/, sounds/, music/, script.txt, log.txt, logs/, app state, and mode resource folders. When omitted (or None), project_path defaults to the directory containing the main script (base_path), preserving backward compatibility with existing apps. When set, base_path still reflects the script location, but all data lookups use project_path.
 
-**When to use `project_path`:** Use it when source code and data files are in separate directories. The RPi App Framework convention places source in `src/` and data at the project root:
+**When to use `project_path`:** Use it when source code and data files are in separate directories. The Pygame App Framework convention places source in `src/` and data at the project root:
 
 ```python
 import os
@@ -69,6 +129,14 @@ class Example_App(App):
 ```
 
 ### App Class Fields and Methods
+
+App and Worker scheduling, input debouncing and WiFi check intervals use a
+monotonic clock; their elapsed-time bookkeeping is not a wall-clock timestamp.
+Config reloads update App processing/drawing rates and the platform's font size.
+Display, audio-driver and window configuration changes still require a restart.
+An exception in the App process hook does not suppress input and worker messages.
+Initialization failures clean up started Workers. Shutdown exits the current
+Mode and releases Workers even when file logging is unavailable.
 
 ```
 config: dict                              # application configuration
@@ -147,6 +215,8 @@ start_display_fade(steps=None, color='black', end_mode=None, end_parameters=None
 ### Sound
 Volume is specified as a range from 0 to 100.
 Loops are specified as 0 (play once) or -1 (repeat forever).
+Both playback methods apply the requested volume on every call, including 100
+after a quieter playback (corrected in version 0.44).
 
 ```
 sounds: dict        				       # indexed by filename without extension
@@ -165,6 +235,9 @@ play_sound_on_channel(sound, loops=None, volume=None) -> Channel|None
 ### Music
 Volume is specified as a range from 0 to 100.
 
+Music fades advance once per drawing cycle, or once per processing cycle in
+headless applications.
+
 ```
 get_music(music_name)	# finds music by checking mode library, app library, and path
 play_music(filename, loops=0, volume=None)
@@ -174,6 +247,10 @@ start_music_fade(steps)
 ```
 
 ### Pointer (Touch or Mouse) Input
+
+A pointer gesture belongs to the Mode that received its accepted click. Changing
+Modes cancels that gesture; its remaining hold/release events do not reach the
+new Mode. Disabling keyboard input clears new_keys and held_keys.
 
 ```
 pointer: PointerInterface		# interface to pointer object (mouse or touch)
@@ -199,14 +276,19 @@ stop_keyboard_buffering()		# stops buffering keyboard input
 
 ### App State
 
+If an existing state file cannot be read or parsed, saving is blocked to avoid
+overwriting recoverable data with an empty state. save_app_state() returns False;
+persisted set_app_state() also returns False and rolls back its change. Repair
+the file and call load_app_state() successfully before resuming persistence.
+
 The App stores an `app_state` dict for app-wide data that should be available to all Modes. App state is saved incrementally via `set_app_state()` during normal operation and reloaded at startup to persist the state of the app. Because the app state uses `json.dumps` and `json.loads`, any such data must be JSON-serializable. If the App does not find an `app_state.json` file at startup, it will look for an `app_state_start.json` file and read it into an initial app state. Relative paths for app_state_filename and app_state_start_filename are resolved relative to project_path; absolute paths are used as-is.
 
 ```
 app_state: dict
 persist_app_state: bool         # whether to save and load app_state automatically
 load_app_state()                # loads app state
-set_app_state(key, value)       # saves parameter in app state
-save_app_state()				# saves app state to file
+set_app_state(key, value) -> bool   # restores the previous value on save failure
+save_app_state() -> bool           # success indicator; failures are logged
 ```
 
 ### Scripting
@@ -359,6 +441,14 @@ SelectButton(x, y, width, height,
 
 #### Programmatic State Control
 
+LabeledControl respects the wrapped control's visibility and enabled state.
+After repositioning the wrapper, set_layout() aligns both coordinates of its
+child. Release still runs for cleanup when a selected control is disabled.
+HoldButton commits progress before invoking callbacks, so callbacks can release
+the button or change Modes without leaving stale progress behind.
+With reset_to_first=False, SelectButton preserves a retained item's selection
+even when the replacement list is shorter and reordered.
+
 ```
 CheckButton.set_checked(checked: bool, do_click: bool=False)
 ToggleButton.set_toggled(toggled: bool, do_click: bool=False)
@@ -366,6 +456,7 @@ SelectButton.set_selected_item(item, do_click: bool=False)
 SelectButton.set_selected_index(index: int, do_click: bool=False)
 SelectButton.set_items(items: list, values: list=None, reset_to_first: bool=True)
 LabeledControl.set_caption(caption: str)
+LabeledControl.set_layout()
 ```
 
 ### Submodes
@@ -380,6 +471,10 @@ set_submode(name: str|None, mode_parameters: dict=None)  # None exits current su
 ```
 
 A few specific details about submode methods:
+
+When an enter/exit callback requests another Mode, that newer request takes
+precedence. An outer transition does not apply its requested submode to a Mode
+selected by the callback. Submode discovery does not evaluate properties.
 
 * `enter_{submode}` is called during `set_submode`, not during or in place of `mode.enter`. Of course, `mode.enter` will usually call `mode.set_submode` to select the initial submode, which results in `enter_{submode}` being called. `enter_{submode}` is also called while changing to the submode at a later time during the presentation of the mode.
 * `click_{submode}`, `hold_{submode}`, `release_{submode}`, `process_{submode}`, and `draw_{submode}` are called **instead of** the mode method. Since the submode method can call the corresponding mode method, this logic provides greater control over if and when that happens - e.g., the submode can draw before, after, and/or instead of the `mode.draw` method.
@@ -423,6 +518,15 @@ Calling `set_sequence(sequence_name)` causes the sprite to be rendered with the 
 
 Calling `.set_image()` chooses the static image or the current image from the animation, applies sprite effects, sets the `.width` and `.height` fields, and finally sets `sprite.image` and directly returns the image.
 
+Mode.add_sprite() assigns sprite.mode. String animation/image names resolve
+against that owning Mode, then the App library, rather than whichever Mode is
+currently active. Animation names remain deferred when added before the Mode's
+resources load. Explicit Animation and Surface objects remain explicit choices.
+Invalid sequence/frame requests return False without discarding the previous
+valid selection. Positional drawing order is by y, then x, independent of screen
+width; z still takes precedence. One sprite's process exception is logged without
+preventing other sprites from processing.
+
 ### Sprite Class Fields and Methods
 
 ```
@@ -451,6 +555,15 @@ process()                            # stub method for sprite process
 ```
 
 ## Worker Class Reference
+
+A broken App queue ends the current drain attempt rather than retrying it in a
+tight loop. Configuration reloads retain the last good configuration on stat,
+read, parse or JSON-serialization errors; write_config() validates IPC
+serializability before writing. Strict Config.load() also raises for missing
+files. Non-strict loading still allows absent optional configuration files.
+WiFi recovery restores an interface or driver in a finally block when an exit
+interrupts its down/up or unload/load sequence. Forced process termination and
+hardware command failures can still prevent recovery.
 
 ### Example Worker
 
@@ -571,13 +684,21 @@ The following classes and functions are available in jubilee.misc:
 Operations default to get_filename() filename, which is usually `config.toml`. Config files use TOML format. None values are stripped on save (TOML has no null; omit keys to indicate None/unset). When App sets a project_path, Config.get_filename() resolves relative to that path.
 ```
 project_path: str=None                                 # class var; set by App
-load(filename: str=None, defaults: dict=None) -> dict  # combines file data and defaults
-save(config: dict=None, filename: str=None)            # strips None values before writing
+load(filename: str=None, defaults: dict=None, strict: bool=False) -> dict
+save(config: dict=None, filename: str=None)            # strips top-level None values
 get_filename() -> str
 ```
 
 ### Log
+
+Relative log filenames are normalized to absolute paths for handler caching and
+file-level settings, so changing working directories cannot reuse another
+directory's handler. Empty messages remain valid parseable records.
 Operations default to get_filename() filename, which is usually `log.txt`. The first worker usually rotates the log during process_periodic at a frequency defined in `config.toml`. When App sets a project_path, Log.get_filename() resolves relative to that path.
+In version 0.44, error() also includes the current exception
+traceback when called from an exception handler. Ordinary error messages outside
+an exception handler do not acquire a synthetic traceback. This improves
+diagnostics without changing the caller's recovery or continuation behavior.
 ```
 project_path: str=None                                  # class var; set by App
 ERROR, WARNING, INFO, DEBUG                             # const levels
@@ -604,6 +725,10 @@ This enum maps color constants to tuples (e.g.: Color.BLACK.value = (0, 0, 0)).
 ### Misc
 
 Random common functionality.
+
+HTTP header names are case-insensitive. Explicit User-Agent headers take
+precedence over generated defaults, and user-agent preparation errors return
+the same (None, error_string) result as request errors.
 
 ```
 key_names                                   # from pygame: ('backspace', 'tab', etc.)

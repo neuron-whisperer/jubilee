@@ -28,6 +28,17 @@ class App:
 	""" App class for app framework. """
 
 	def __init__(self, workers=None, project_path=None):
+		self.workers = {}
+		self.pointer = None
+		self._pointer_mode = None
+		self.mode = None
+		try:
+			self._initialize(workers=workers, project_path=project_path)
+		except BaseException:
+			self._cleanup()
+			raise
+
+	def _initialize(self, workers=None, project_path=None):
 
 		# resolve paths
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
@@ -76,7 +87,7 @@ class App:
 
 			# initialize window
 			available_modes = pygame.display.list_modes()
-			default_resolution = available_modes[0] if available_modes else (320, 240)
+			default_resolution = available_modes[0] if isinstance(available_modes, list) and available_modes else (320, 240)
 			self.screen_width, self.screen_height = self.config.get('screen_resolution', default_resolution)
 			self.screen_center = int(self.screen_width / 2)
 			self.screen_middle = int(self.screen_height / 2)
@@ -122,7 +133,7 @@ class App:
 			self.draw_last = 0											# time of last draw method
 			self.fps_count = 0											# FPS count for last second
 			self.fps_counting = 0										# FPS count for current second
-			self.fps_time = int(time.time())				# time of current FPS count
+			self.fps_time = int(time.monotonic())				# time of current FPS count
 			self.draw_period = 1.0 / max(1, int(self.config.get('app_draw_fps', 20)))
 
 			# fonts
@@ -144,6 +155,8 @@ class App:
 
 		# add workers
 		self.workers = {}
+		self.pointer = None
+		self.register_exit_handlers()
 		if workers is not None:
 			self.add_workers(workers)
 
@@ -190,7 +203,7 @@ class App:
 
 		# pointer input
 		self.pointer = None
-		self.pointer_input_last = time.time()				# time of last pointer input
+		self.pointer_input_last = time.monotonic()				# time of last pointer input
 		self.pointer_input_debouncing = 100					# time between pointer inputs (ms)
 		if self.headless is False:
 			if platform.uname().system == 'Darwin':
@@ -209,9 +222,6 @@ class App:
 		self.keyboard_buffer = ''
 		self.keyboard_buffer_chars = []
 
-		# register exit handlers
-		self.register_exit_handlers()
-
 		# initialize script
 		self.init_script()
 
@@ -226,18 +236,21 @@ class App:
 
 		try:
 			while True:
-				if time.time() - self.process_last >= self.process_period:
+				if time.monotonic() - self.process_last >= self.process_period:
 					self.on_process()
 				if self.headless is False:
-					if time.time() - self.draw_last >= self.draw_period:
+					if time.monotonic() - self.draw_last >= self.draw_period:
 						self.on_draw()
-				process_delay = self.process_period - (time.time() - self.process_last)
-				draw_delay = 1 if self.headless is True else self.draw_period - (time.time() - self.draw_last)
+				process_delay = self.process_period - (time.monotonic() - self.process_last)
+				draw_delay = 1 if self.headless is True else self.draw_period - (time.monotonic() - self.draw_last)
 				delay = min(process_delay, draw_delay)
 				if delay > 0:
 					time.sleep(delay)
 		except Exception as e:
 			Log.error(e)
+			raise
+		finally:
+			self._cleanup()
 
 	def add_worker(self, worker: type):
 		""" Adds instance of worker class to app. """
@@ -249,7 +262,24 @@ class App:
 		wifi_manager = (len(self.workers) == 0)			# first worker also manages wifi watchdog
 		if len(self.workers) > 0:
 			time.sleep(1)															# delay to allow previous worker to start
-		worker_instance = worker(app_queue, worker_queue, config_manager, log_manager, wifi_manager)
+		try:
+			worker_instance = worker(app_queue, worker_queue, config_manager, log_manager, wifi_manager)
+		except BaseException:
+			for channel in (app_queue, worker_queue):
+				channel.cancel_join_thread()
+				channel.close()
+			raise
+		if worker_instance.name in self.workers:
+			process = worker_instance.worker_process
+			if process is not None:
+				process.terminate()
+				process.join(timeout=2)
+				if process.is_alive():
+					process.kill()
+					process.join(timeout=2)
+			app_queue.close()
+			worker_queue.close()
+			raise ValueError(f'Duplicate worker name: {worker_instance.name}')
 		self.workers[worker_instance.name] = worker_instance
 
 	def add_workers(self, workers: list):
@@ -288,42 +318,55 @@ class App:
 					mode_parameters:		Parameters for enter() for new mode.
 		"""
 
-		# insert previous_mode into mode_parameters
-		mode_parameters = mode_parameters or {}
-		mode_parameters['previous_mode'] = None if self.mode is None else self.mode.name
-
-		# switch from mode
-		if self.mode is not None:
-			self.mode.on_exit()
-
-		# switch to mode
+		if getattr(self, '_exiting', False):
+			return
 		new_mode = self.modes.get(mode) if isinstance(mode, str) else mode
 		if new_mode is None:
 			Log.error(f'No known mode named {mode}')
 			return
+
+		# Do not mutate caller-owned parameters or exit a mode for an invalid target.
+		mode_parameters = dict(mode_parameters or {})
+		mode_parameters['previous_mode'] = None if self.mode is None else self.mode.name
+
+		# switch from mode
+		self._pointer_mode = None
+		if self.mode is not None:
+			previous_mode = self.mode
+			if getattr(self, '_exiting_mode', None) is not previous_mode:
+				self._exiting_mode = previous_mode
+				try:
+					previous_mode.on_exit()
+				finally:
+					self._exiting_mode = None
+				if self.mode is not previous_mode or getattr(self, '_exiting', False):
+					return
+
+		# switch to mode
 		self.mode = new_mode
 		try:
-			self.mode.on_enter(mode_parameters=mode_parameters)
+			new_mode.on_enter(mode_parameters=mode_parameters)
 		except Exception as e:
-			Log.error(f'Exception while entering mode {self.mode.name}: {e}')
+			Log.error(f'Exception while entering mode {new_mode.name}: {e}')
 		submode = mode_parameters.get('submode')
-		if submode is not None:
-			self.mode.set_submode(submode)
+		if submode is not None and self.mode is new_mode:
+			new_mode.set_submode(submode, mode_parameters=mode_parameters)
 
 	def on_process(self):
 		""" Main app process event receiver. Calls current mode process method. """
 
-		self.process()
-
-		if self.mode is None:
-			return
-
 		try:
-			self.process_last = time.time()
+			self.process_last = time.monotonic()
+			try:
+				self.process()
+			except Exception as e:
+				Log.error(f'Error processing app: {e}')
 			self.handle_events()
+			if self.headless:
+				self.apply_music_fade()
 			report_threshold = 0.2		# report processing if more than 0.2 seconds
 
-			start = time.time()
+			start = time.monotonic()
 			if self.config.get('modal') is True:			# only process current mode
 				if self.mode is None:
 					return
@@ -331,19 +374,19 @@ class App:
 					self.mode.on_process()
 				except Exception as e:
 					Log.error(f'Error processing mode {self.mode.name}: {e}')
-				duration = time.time() - start
+				duration = time.monotonic() - start
 				if duration > report_threshold:
 					Log.info(f'Processing mode {self.mode.name} took {duration:.3f}')
 			else:																			# process all modes
 				mode_times = {}
-				for mode in self.modes.values():
-					mode_start = time.time()
+				for mode in list(self.modes.values()):
+					mode_start = time.monotonic()
 					try:
 						mode.on_process()
 					except Exception as e:
 						Log.error(f'Error processing mode {mode.name}: {e}')
-					mode_times[mode.name] = f'{time.time() - mode_start:.3f}'
-				duration = time.time() - start
+					mode_times[mode.name] = f'{time.monotonic() - mode_start:.3f}'
+				duration = time.monotonic() - start
 				if duration > report_threshold:
 					Log.info(f'Processing modes took {duration:.3f} s')
 					Log.info(f'  Mode times: {mode_times}')
@@ -358,12 +401,12 @@ class App:
 		""" Main draw method event receiver. Calls current mode draw method and
 				then draws controls and popover message. """
 
-		self.draw_last = time.time()
+		self.draw_last = time.monotonic()
 
 		try:
 
 			self.fps_counting += 1
-			current_time = int(time.time())
+			current_time = int(time.monotonic())
 			if current_time != self.fps_time:
 				self.fps_time = current_time
 				self.fps_count = self.fps_counting
@@ -422,6 +465,11 @@ class App:
 			elif event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP) and self.pointer is not None:
 				if self.pointer.handle_event(event):
 					self.on_click(self.pointer.x, self.pointer.y)
+				elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+					if self.mode is not None and getattr(self, '_pointer_mode', None) is self.mode:
+						self.mode.on_release()
+					self._pointer_mode = None
+					self.pointer.held = False
 
 		if self.pointer is not None:
 
@@ -431,12 +479,13 @@ class App:
 				self.on_click(self.pointer.x, self.pointer.y)
 
 			# respond to hold and release events, and then update state
-			if self.mode is not None:
+			if self.mode is not None and getattr(self, '_pointer_mode', None) is self.mode:
 				if self.pointer.down is True:
 					if self.pointer.held is True:		# held
 						self.mode.on_hold()
 				elif self.pointer.held is True:		# released
 					self.mode.on_release()
+					self._pointer_mode = None
 
 			# set state for next time
 			self.pointer.held = self.pointer.down
@@ -458,10 +507,13 @@ class App:
 					elif k not in ('return', 'left shift', 'left ctrl', 'right shift', 'right ctrl', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'insert' ,'home', 'end', 'right', 'left', 'up', 'down', 'delete', 'escape'):
 						self.keyboard_buffer_chars.append(k)
 						if any(shift in self.held_keys for shift in ['left shift', 'right shift']):
-							if k in Misc.key_shift_symbols:
-								self.keyboard_buffer += Misc.key_shift_symbols[k]
+							self.keyboard_buffer += Misc.key_shift_symbols.get(k, Misc.key_symbols.get(k, ''))
 						elif k in Misc.key_symbols:
 							self.keyboard_buffer += Misc.key_symbols[k]
+
+		else:
+			self.new_keys = []
+			self.held_keys = []
 
 		self.receive_messages()
 
@@ -506,7 +558,12 @@ class App:
 		if action == 'exit':
 			self.exit(0)
 		elif action == 'config updated':
-			self.config = message.get('config', {})
+			config = message.get('config', {})
+			process_period = 1.0 / max(1, int(config.get('app_process_fps', 20)))
+			draw_period = 1.0 / max(1, int(config.get('app_draw_fps', 20)))
+			self.config = config
+			self.process_period = process_period
+			self.draw_period = draw_period
 			for name in (name for name, worker in self.workers.items() if worker.config_manager is False):
 				self.send_message(message, name)
 			if self.headless is False:
@@ -602,14 +659,14 @@ class App:
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
-		pygame.draw.line(dest, color, (x1, y1), (x2, y2), width)
+		pygame.draw.line(dest, color, (x1, y1), (x2, y2), int(width))
 
 	def draw_rect(self, left: int|float, top: int|float, width: int|float, height: int|float, line_width: int|float=1, color='white', dest: Surface=None):
 		""" Draws rect at coordinates. """
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
-		pygame.draw.rect(dest, color, (left, top, width, height), line_width)
+		pygame.draw.rect(dest, color, (left, top, width, height), int(line_width))
 
 	def fill_rect(self, left: int|float, top: int|float, width: int|float, height: int|float, color='white', dest: Surface=None):
 		""" Fills rect at coordinates. """
@@ -623,14 +680,14 @@ class App:
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
-		pygame.draw.polygon(dest, color, coordinates, width=width)
+		pygame.draw.polygon(dest, color, coordinates, width=int(width))
 
 	def draw_circle(self, x: int|float, y: int|float, radius: int|float=1, width: int|float=1, color='white', dest: Surface=None):
 		""" Draws circle centered at coordinate. """
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
-		pygame.draw.circle(dest, color, (x, y), radius, width=width)
+		pygame.draw.circle(dest, color, (x, y), radius, width=int(width))
 
 	def fill_circle(self, x: int|float, y: int|float, radius: int|float=1, color='white', dest: Surface=None):
 		""" Fills circle centered at coordinate. """
@@ -642,7 +699,7 @@ class App:
 
 		dest = dest or self.window
 		color = Misc.get_color(color)
-		pygame.draw.arc(dest, color, Rect(x, y, arc_width, arc_height), start_angle * math.pi / 180, stop_angle * math.pi / 180, width=line_width)
+		pygame.draw.arc(dest, color, Rect(x, y, arc_width, arc_height), start_angle * math.pi / 180, stop_angle * math.pi / 180, width=int(line_width))
 
 	# surface and image methods
 
@@ -654,7 +711,7 @@ class App:
 		if alpha_blend:
 			flags = flags | pygame.SRCALPHA
 		surface = Surface((x, y), flags=flags)
-		surface = surface.convert_alpha() if alpha_blend else surface.convert()
+		surface = surface.convert_alpha() if flags & pygame.SRCALPHA else surface.convert()
 		if color is not None:
 			c = Misc.get_color(color)
 			surface.fill(c, (0, 0, x, y))
@@ -706,9 +763,9 @@ class App:
 					animation.sequences[name] = [i]
 				else:		# parse _ for sequence number
 					sequence_name, sequence_number = name.rsplit('_', 1)
-					sequence_files.setdefault(sequence_name, {})
 					try:
-						sequence_files[sequence_name][int(sequence_number)] = i
+						number = int(sequence_number)
+						sequence_files.setdefault(sequence_name, {})[number] = i
 					except ValueError:		# file ends with non-numeric field
 						animation.sequences[name] = [i]
 
@@ -766,7 +823,7 @@ class App:
 
 	def blit(self, image: str|Surface, x: int|float, y: int|float, position: SpritePosition=None, scale: int|float|tuple=None, area: Rect=None, flags: int=None, dest: Surface=None):
 		""" Blits image to dest at coordinates.
-				Optionally scale by factor or to (width, height).
+				Optionally scale by one factor or a pair of per-axis factors.
 				Optionally specify an area of the source image (post-scaling).
 				Surfaces that have an alpha channel are blitted with pygame.BLEND_ALPHA_SDL2. """
 
@@ -774,10 +831,9 @@ class App:
 		if i is None:
 			Log.error(f'Could not get image of type {image}')
 			return
-		flags = flags or 0
 		dest = dest or self.window
-		if i.get_alpha() is not None:
-			flags = flags | pygame.BLEND_ALPHA_SDL2
+		if flags is None:
+			flags = pygame.BLEND_ALPHA_SDL2 if i.get_alpha() is not None else 0
 		try:
 			if scale is not None:
 				if isinstance(scale, tuple):
@@ -803,7 +859,7 @@ class App:
 			return None
 		x, y = i.get_size()
 		x = int(x * x_scale)
-		y = int(y * (y_scale or x_scale))
+		y = int(y * (x_scale if y_scale is None else y_scale))
 		return pygame.transform.smoothscale(i, (x, y))
 
 	def flip_image(self, image: str|Surface, horizontal: bool=False, vertical: bool=False) -> Surface|None:
@@ -833,7 +889,7 @@ class App:
 			return None
 		try:
 			arr = pygame.surfarray.pixels3d(i).copy()
-			alpha = pygame.surfarray.pixels_alpha(i).copy() if i.get_alpha() is not None else None
+			alpha = pygame.surfarray.pixels_alpha(i).copy() if i.get_masks()[3] else None
 			# convert RGB to float 0-1
 			r, g, b = arr[:,:,0] / 255.0, arr[:,:,1] / 255.0, arr[:,:,2] / 255.0
 			maxc = numpy.maximum(numpy.maximum(r, g), b)
@@ -881,6 +937,12 @@ class App:
 			else:
 				result = pygame.Surface(i.get_size()).convert()
 				pygame.surfarray.blit_array(result, arr)
+			result.set_alpha(i.get_alpha())
+			if i.get_colorkey() is not None:
+				key_surface = pygame.Surface((1, 1))
+				key_surface.fill(i.get_colorkey())
+				shifted_key = self.shift_image_hue(key_surface, delta)
+				result.set_colorkey(shifted_key.get_at((0, 0)))
 			return result
 		except Exception as e:
 			Log.error(e)
@@ -995,8 +1057,7 @@ class App:
 			Log.error(f'Could not get sound {sound_name}')
 			return
 		volume = volume if volume is not None else self.sound_volume
-		if volume != 100:
-			sound.set_volume(volume / 100.0)
+		sound.set_volume(volume / 100.0)
 		sound.play(loops=loops or 0)
 
 	def play_sound_on_channel(self, sound: str|Sound, loops: int=None, volume: int|float=None) -> Channel|None:
@@ -1011,8 +1072,7 @@ class App:
 			Log.error(f'Could not get sound {sound_name}')
 			return None
 		volume = volume if volume is not None else self.sound_volume
-		if volume != 100:
-			sound.set_volume(volume / 100.0)
+		sound.set_volume(volume / 100.0)
 		channel = pygame.mixer.find_channel()
 		if channel is None:
 			Log.error('Could not find open channel')
@@ -1042,6 +1102,8 @@ class App:
 			return
 
 		if enable:
+			if self.sound_retainer is not None:
+				return
 			filename = os.path.join(self.project_path, 'sounds', 'sound_retainer.wav')
 			if os.path.isfile(filename) is False:
 				Log.error(f'{filename} does not exist')
@@ -1082,10 +1144,11 @@ class App:
 			Log.error(f'No file named {filename}')
 			return
 		volume = volume if volume is not None else self.music_volume
-		pygame.mixer.music.set_volume(volume / 100.0)
 		try:
 			pygame.mixer.music.load(music)
+			pygame.mixer.music.set_volume(volume / 100.0)
 			pygame.mixer.music.play(loops=loops)
+			self.music_fade_steps = self.music_fade_step = None
 		except Exception as e:
 			Log.error(e)
 
@@ -1108,10 +1171,12 @@ class App:
 	def start_music_fade(self, steps: int):
 		""" Starts a music fade over a given number of steps. """
 
-		if not steps:
+		if self.nosound or not steps or steps < 0:
+			self.music_fade_steps = self.music_fade_step = None
 			return
 		self.music_fade_steps = steps
 		self.music_fade_step = 0
+		self.music_fade_start_volume = pygame.mixer.music.get_volume()
 
 	def apply_music_fade(self):
 		""" Applies music fade, if it exists. """
@@ -1125,10 +1190,10 @@ class App:
 
 		self.music_fade_step += 1
 		level = max(0.0, 1.0 - (self.music_fade_step / float(self.music_fade_steps)))
-		pygame.mixer.music.set_volume((self.music_volume * level) / 100.0)
+		pygame.mixer.music.set_volume(self.music_fade_start_volume * level)
 		if self.music_fade_step >= self.music_fade_steps:
 			pygame.mixer.music.stop()
-			pygame.mixer.music.set_volume(self.music_volume / 100.0)
+			pygame.mixer.music.set_volume(self.music_fade_start_volume)
 			self.music_fade_steps = self.music_fade_step = None
 
 	# app state methods
@@ -1136,32 +1201,45 @@ class App:
 	def load_app_state(self):
 		""" Loads app state. """
 
+		self._app_state_load_failed = False
 		filename = self.app_state_filename
-		if os.path.isfile(filename) is False:
+		if not os.path.lexists(filename):
 			filename = self.app_state_start_filename
-			if os.path.isfile(filename) is False:
+			if not os.path.lexists(filename):
 				Log.info('No app_state or app_state_start - using empty state dict')
 				self.app_state = {}
 				return
-		with open(filename, 'rt', encoding='UTF-8') as f:
-			try:
-				self.app_state = json.loads(f.read().strip())
-				Log.info('Loaded app state')
-			except Exception as e:
-				Log.error(e)
-				self.app_state = {}
+		try:
+			with open(filename, 'rt', encoding='UTF-8') as f:
+				state = json.load(f)
+			if not isinstance(state, dict):
+				raise ValueError('App state must be a JSON object')
+			self.app_state = state
+			Log.info('Loaded app state')
+		except Exception as e:
+			self._app_state_load_failed = True
+			Log.error(f'App state load failed; saving is blocked until a successful reload: {e}')
+			self.app_state = {}
 
 	def set_app_state(self, key, value):
 		""" Sets app state key/value pair and saves state. """
 
+		previous_state = self.app_state.copy()
 		self.app_state[key] = value
-		if self.persist_app_state is True:
-			self.save_app_state()
+		if self.persist_app_state is True and self.save_app_state() is False:
+			self.app_state.clear()
+			self.app_state.update(previous_state)
+			return False
+		return True
 
 	def save_app_state(self):
 		""" Saves app state atomically to prevent corruption on power loss. """
 
+		if getattr(self, '_app_state_load_failed', False):
+			Log.error('Cannot save app state after a failed load; repair the state file and reload it first')
+			return False
 		dir_name = os.path.dirname(os.path.abspath(self.app_state_filename))
+		tmp_path = None
 		try:
 			fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 			with os.fdopen(fd, 'wt', encoding='UTF-8') as f:
@@ -1172,11 +1250,13 @@ class App:
 		except Exception as e:
 			Log.error(f'Failed to save app state: {e}')
 			try:
-				os.unlink(tmp_path)
+				if tmp_path is not None:
+					os.unlink(tmp_path)
 			except OSError:
 				pass
-			return
+			return False
 		Log.debug('Saved app state')
+		return True
 
 	# script and scene methods
 
@@ -1189,7 +1269,7 @@ class App:
 		if os.path.isfile(script_filename) is False:
 			return
 		with open(script_filename, 'rt', encoding='UTF-8') as f:
-			lines = list(line.strip() for line in f.readlines() if len(line.strip()) > 0 and line[0] != '#')
+			lines = list(line.strip() for line in f.readlines() if line.strip() and not line.lstrip().startswith('#'))
 			for line in lines:
 				tokens = list(t.strip() for t in line.split() if len(t.strip()) > 0)
 				token_pairs = list(t.split('=') for t in tokens if len(t.split('=')) == 2)
@@ -1205,17 +1285,17 @@ class App:
 	def run_script(self):
 		""" Begins script execution. """
 
-		self.select_scene(self.app_state['scene'])
+		self.select_scene(self.app_state.get('scene', 0))
 
 	def select_scene(self, scene_id: str|int):
 		""" Selects scene by name or number. """
 
-		if self.script is None:
+		if not self.script:
 			Log.error('No loaded script')
 			return
 		scene_number = None
 		if isinstance(scene_id, int):
-			if scene_id >= len(self.script):
+			if scene_id < 0 or scene_id >= len(self.script):
 				Log.error(f'Scene number {scene_id} cannot be selected ({len(self.script)} scenes)')
 				return
 			scene_number = scene_id
@@ -1225,11 +1305,12 @@ class App:
 				Log.error(f'Unknown scene {scene_id}')
 				return
 			scene_number = matches[0]
-		self.set_app_state('scene', scene_number)
 		scene = self.script[scene_number]
 		mode_name = scene.get('mode')
 		if mode_name not in self.modes:
 			Log.error(f'No mode named {mode_name}')
+			return
+		if self.set_app_state('scene', scene_number) is False:
 			return
 		self.set_mode(mode_name, mode_parameters=scene.copy())
 		Log.debug(f'Selected scene {scene_number} ({scene})')
@@ -1237,7 +1318,7 @@ class App:
 	def advance_scene(self, delta: int=1):
 		""" Advances to indicated scene. """
 
-		self.select_scene(self.app_state['scene'] + delta)
+		self.select_scene(self.app_state.get('scene', 0) + delta)
 
 	# pointer input methods
 
@@ -1245,13 +1326,14 @@ class App:
 		""" Mode click event handler. """
 
 		# debouncing check
-		if self.pointer_input_last is not None and time.time() < self.pointer_input_last + self.pointer_input_debouncing / 1000:
+		if self.pointer_input_last is not None and time.monotonic() < self.pointer_input_last + self.pointer_input_debouncing / 1000:
 			return
 
 		if x is None or y is None or self.mode is None:
 			return
 
-		self.pointer_input_last = time.time()
+		self.pointer_input_last = time.monotonic()
+		self._pointer_mode = self.mode
 		self.mode.on_click(x, y)
 
 	# keyboard input methods
@@ -1299,6 +1381,8 @@ class App:
 	def set_standard_font(self):
 		""" Sets default font, including lazily-created sizes. """
 
+		font_size_key = 'font_size_desktop' if platform.uname().system == 'Darwin' else 'font_size'
+		self.standard_font_size = int(self.config.get(font_size_key, Worker.config_defaults[font_size_key]))
 		self.standard_font_name = self.config.get('font', None) or (self.font_list[0] if self.font_list else None)
 		self.standard_font = pygame.font.SysFont(self.standard_font_name, self.standard_font_size)
 		self.standard_font_sizes = _LazyFontDict(self.standard_font_name)
@@ -1327,45 +1411,89 @@ class App:
 	def register_exit_handlers(self):
 		""" Registers handlers to ensure that pygame.quit() is called. """
 
-		atexit.register(self.exit)
+		atexit.register(self._cleanup)
 		for s in [signal.SIGABRT, signal.SIGINT, signal.SIGTERM]:
-			signal.signal(s, lambda *_: sys.exit(0))
+			signal.signal(s, lambda *_: self.exit(0))
 
 	def exit(self, code=0):
 		""" Exits application. """
+
+		self._cleanup()
+		sys.exit(code)
+
+	def _cleanup(self):
+		""" Idempotent cleanup, also safe to call from atexit without SystemExit. """
 
 		if getattr(self, '_exiting', False):
 			return
 		self._exiting = True
 
-		Log.info('Exiting')
-		for worker in self.workers.values():
-			if worker.worker_process is not None:
-				self.send_message('exit', worker.name)
-		for worker in self.workers.values():
-			if worker.worker_process is not None:
-				worker.worker_process.join(timeout=2)
-		if self.pointer is not None:
-			self.pointer.release()
+		def report(method, message):
+			# Cleanup must remain possible when file logging itself has failed.
+			try:
+				method(message)
+			except Exception:
+				try:
+					print(message, file=sys.stderr)
+				except Exception:
+					pass
+
 		try:
-			pygame.quit()
+			report(Log.info, 'Exiting')
+			mode = self.mode
+			self.mode = None
+			if mode is not None:
+				try:
+					mode.on_exit()
+				except SystemExit:
+					pass  # An exit callback may request exit again; still reap Workers.
+				except Exception as e:
+					report(Log.error, f'Mode cleanup failed: {e}')
+			workers = list(self.workers.values())
+			for worker in workers:
+				try:
+					if worker.worker_process is not None:
+						self.send_message('exit', worker.name)
+				except Exception as e:
+					report(Log.error, f'Worker exit request failed: {e}')
+			for worker in workers:
+				try:
+					process = worker.worker_process
+					if process is not None:
+						process.join(timeout=2)
+						if process.is_alive():
+							report(Log.warning, f'Terminating unresponsive worker {worker.name}')
+							process.terminate()
+							process.join(timeout=2)
+						if process.is_alive():
+							process.kill()
+							process.join(timeout=2)
+					for channel in (worker.app_queue, worker.worker_queue):
+						channel.cancel_join_thread()
+						channel.close()
+				except Exception as e:
+					report(Log.error, f'Worker cleanup failed: {e}')
+			if self.pointer is not None:
+				self.pointer.release()
 		finally:
-			sys.exit(code)
+			pygame.quit()
 
 	def reboot(self):
 		""" Reboots device. """
 
 		Log.info('Rebooting device')
-		self.fill_screen()
-		self.flip()
+		if not self.headless:
+			self.fill_screen()
+			self.flip()
 		subprocess.run(['sudo', 'shutdown', '-r', 'now'])
 
 	def shut_down(self):
 		""" Shuts down device. """
 
 		Log.info('Shutting down device')
-		self.fill_screen()
-		self.flip()
+		if not self.headless:
+			self.fill_screen()
+			self.flip()
 		subprocess.run(['sudo', 'shutdown', 'now'])
 
 	@staticmethod

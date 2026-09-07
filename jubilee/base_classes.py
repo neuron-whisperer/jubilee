@@ -25,6 +25,7 @@ class Sprite:
 
 	def __init__(self, name: str=None, static_image: str=None, animation: str|Animation=None, auto_animate_rate: int=None):
 		self.app = None
+		self.mode = None
 		self.name = name
 		self.x = None
 		self.y = None
@@ -33,7 +34,7 @@ class Sprite:
 		self.animation = animation				# set to an Animation or animation name
 		self.sequence_name = None					# set to a sequence name for animation
 		self.sequence_frame = None
-		self.auto_animate_rate = max(1, int(auto_animate_rate)) if auto_animate_rate is not None else 0
+		self.auto_animate_rate = max(0, int(auto_animate_rate)) if auto_animate_rate is not None else 0
 		self.auto_animate_step = 0
 		self.scale = None									# set to either a float or a two-tuple
 		self.flip_x = False								# flip horizontally
@@ -50,29 +51,46 @@ class Sprite:
 		""" Binds sprite to app. """
 
 		self.app = app
+		if self.mode is not None:
+			if self.animation is None:
+				self.animation = self.name
+			return
 		# try to find animation from string passed as animation name
 		if self.animation is not None and isinstance(self.animation, str):
-			self.animation = self.app.get_animation(self.animation)
+			self.animation = self.app.get_animation(self.animation) or self.animation
 		# if animation is still None, try to find animation from sprite name
 		if self.animation is None and self.name is not None:
-			self.animation = self.app.get_animation(self.name)
+			self.animation = self.app.get_animation(self.name) or self.name
+
+	def _get_animation(self):
+		if self.mode is not None and isinstance(self.animation, str):
+			return self.mode.animations.get(self.animation) or self.app.animations.get(self.animation)
+		return self.app.get_animation(self.animation)
+
+	def _get_image(self, image):
+		if self.mode is not None and isinstance(image, str):
+			return self.mode.images.get(image) or self.app.images.get(image) or self.app.load_image(image)
+		return self.app.get_image(image)
 
 	def set_static_image(self, image: str|Surface|None):
 		""" Sets self.static_image based on image lookup. """
 
-		self.static_image = self.app.get_image(image)
+		self.static_image = image if isinstance(image, str) else self._get_image(image)
+		self._transform_cache_key = None
+		self._transform_cache_image = None
 
 	def set_image(self) -> Surface|None:
 		""" Sets current image for sprite based on self.static_image or
 				self.sequence_name/self.sequence_frame. Also applies transformations
-				and calls set_size(). """
+				and updates width and height. """
 
 		try:
 			self.image = None
+			self.width = self.height = None
 			if self.static_image is not None:
-				self.image = self.app.get_image(self.static_image)
+				self.image = self._get_image(self.static_image)
 			else:
-				animation = self.app.get_animation(self.animation)
+				animation = self._get_animation()
 				if animation is None:
 					return None
 				if self.sequence_name is None:
@@ -99,7 +117,7 @@ class Sprite:
 			has_transforms = (self.scale is not None or self.flip_x or self.flip_y
 				or self.rotate is not None or self.hue_shift is not None)
 			if has_transforms:
-				cache_key = (id(self.image), self.scale if not isinstance(self.scale, list) else tuple(self.scale),
+				cache_key = (self.image, self.scale if not isinstance(self.scale, list) else tuple(self.scale),
 					self.flip_x, self.flip_y, self.rotate, self.hue_shift)
 				if cache_key == self._transform_cache_key and self._transform_cache_image is not None:
 					self.image = self._transform_cache_image
@@ -124,22 +142,22 @@ class Sprite:
 
 		except Exception as e:
 			Log.error(e)
+			self.image = self.width = self.height = None
 			return None
 
 	def set_sequence(self, sequence_name: str, auto_animate_rate: int=None, reset_sequence_frame: bool=True) -> bool:
 		""" Sets an animation sequence, optionally with an animation rate. """
 
 		try:
-			animation = self.app.get_animation(self.animation)
+			animation = self._get_animation()
 			if animation is None:
 				Log.error('No animation to set')
 				return False
 			if sequence_name not in animation.sequences:
 				Log.error(f'No sequence named {sequence_name} in animation')
-				self.sequence_name = None
 				return False
+			self.auto_animate_rate = 0 if auto_animate_rate is None else max(0, int(auto_animate_rate))
 			self.sequence_name = sequence_name
-			self.auto_animate_rate = 0 if auto_animate_rate is None else max(1, int(auto_animate_rate))
 			if reset_sequence_frame is True or self.sequence_frame is None or self.sequence_frame >= len(animation.sequences[sequence_name]):
 				self.sequence_frame = None
 				self.auto_animate_step = 0
@@ -167,16 +185,22 @@ class Sprite:
 				return True
 
 			# find animation
-			animation = self.app.get_animation(self.animation)
+			animation = self._get_animation()
 			if animation is None:
 				Log.error('No animation to set')
 				return False
 			if len(animation.frames) == 0:
 				Log.error(f'Animation {animation.name} has no frames')
 				return False
+			if sequence_frame is not None and not isinstance(sequence_frame, int):
+				Log.error(f'Invalid frame number {sequence_frame}')
+				return False
 
 			if self.sequence_name is None:		# animate through all frames
 				if sequence_frame is not None:
+					if sequence_frame < 0 or sequence_frame >= len(animation.frames):
+						Log.error(f'Invalid frame number {sequence_frame}')
+						return False
 					self.sequence_frame = sequence_frame
 				else:
 					self.sequence_frame = 0 if self.sequence_frame is None else (self.sequence_frame + 1) % len(animation.frames)
@@ -190,12 +214,13 @@ class Sprite:
 					Log.error(f'Sequence {self.sequence_name} has no frames')
 					return False
 				if sequence_frame is not None:
-					self.sequence_frame = sequence_frame
+					next_frame = sequence_frame
 				else:
-					self.sequence_frame = 0 if self.sequence_frame is None else (self.sequence_frame + 1) % len(sequence)
-				if self.sequence_frame is None or self.sequence_frame < 0 or self.sequence_frame >= len(sequence) or sequence[self.sequence_frame] >= len(animation.frames):
-					Log.error(f'Invalid frame number {self.sequence_frame} for animation {animation.name} and sequence {self.sequence_name}')
+					next_frame = 0 if self.sequence_frame is None else (self.sequence_frame + 1) % len(sequence)
+				if next_frame < 0 or next_frame >= len(sequence) or not 0 <= sequence[next_frame] < len(animation.frames):
+					Log.error(f'Invalid frame number {next_frame} for animation {animation.name} and sequence {self.sequence_name}')
 					return False
+				self.sequence_frame = next_frame
 
 			return True
 

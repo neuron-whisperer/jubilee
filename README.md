@@ -2,6 +2,20 @@
 
 ## Introduction
 
+Jubilee supports pygame applications on macOS and Raspberry Pi, with optional
+background Workers and graphical Modes. Python 3.10 or later is required.
+
+## Source Validation
+
+From the Jubilee source directory, use an isolated environment with
+`requirements.txt` installed and run `python -m unittest discover -s tests -v`.
+The packaging test additionally needs setuptools>=77.0.3 and wheel. Tests use
+dummy SDL drivers, temporary data directories, and real spawned Workers; they
+do not validate physical touchscreens, audio devices, WiFi recovery commands,
+or signed macOS bundles. Packaging tests build only in temporary directories.
+
+## Background
+
 Raspberry Pi devices and other single-board computers (SBCs) provide an exciting platform for small-scale computing for hobbyist projects.
 
 A common problem with such projects is the gap between a newly configured device, such as a fresh install of Raspberry Pi OS, and a component that is ready to be programmed for a project. That gap includes a host of basic questions like:

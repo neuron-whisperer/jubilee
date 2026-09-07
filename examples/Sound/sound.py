@@ -18,7 +18,7 @@ class SoundMode(Mode):
 		self.name = 'Sound'
 
 		# load music filenames
-		music_folder = os.path.join(self.app.base_path, 'music')
+		music_folder = os.path.join(self.app.project_path, 'music')
 		self.music = list(f for f in os.listdir(music_folder) if os.path.splitext(f)[1].lower() == '.mp3')
 
 		self.music_index = 0

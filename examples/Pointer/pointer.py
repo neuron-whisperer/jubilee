@@ -50,7 +50,7 @@ class PointerMode(Mode):
 	def process(self):
 		""" Process method for Pointer mode. """
 
-		for c in self.circles:
+		for c in list(self.circles):
 			if c.process():
 				self.circles.remove(c)
 

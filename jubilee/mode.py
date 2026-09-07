@@ -20,7 +20,8 @@ class Mode:
 		self.submode_timer = None
 
 		# find submodes by introspection
-		method_names = list(m[0] for m in inspect.getmembers(self, predicate=inspect.ismethod))
+		method_names = [name for name in dir(type(self))
+			if inspect.isfunction(inspect.getattr_static(type(self), name))]
 		self.submodes = []
 		for method_type in ['enter', 'click', 'hold', 'release', 'process', 'draw', 'exit']:
 			for m in (m for m in method_names if m.startswith(f'{method_type}_')):
@@ -68,6 +69,9 @@ class Mode:
 	def set_submode(self, name: str|None, mode_parameters: dict=None):
 		""" Sets submode and resets submode timer. """
 
+		if name is not None and name not in self.submodes:
+			Log.error(f'No known submode {name}')
+			return
 		# call exit_submode on current submode if it exists
 		if self.submode is not None and hasattr(self, f'exit_{self.submode}'):
 			try:
@@ -107,15 +111,17 @@ class Mode:
 		""" Remove control from mode. Can either pass in the control or its caption. """
 
 		if isinstance(control, str):
-			matching_controls = list(c for c in self.controls if c.caption == control)
+			matching_controls = list(c for c in self.controls if getattr(c, 'caption', None) == control)
 			if len(matching_controls) > 0:
 				for b in matching_controls:
-					self.controls.remove(b)
+					self.remove_control(b)
 			else:
 				Log.error(f'No control with caption {control} in mode')
 		else:
 			if control in self.controls:
 				self.controls.remove(control)
+				if self.selected_control is control:
+					self.on_release()
 			else:
 				Log.error(f'Control {control} is not in mode.controls')
 
@@ -123,6 +129,8 @@ class Mode:
 		""" Remove all controls from mode. """
 
 		self.controls = []
+		if self.selected_control is not None:
+			self.on_release()
 
 	def on_click(self, x: int|float, y: int|float):
 		""" Mode click event receiver. """
@@ -158,10 +166,14 @@ class Mode:
 		""" Mode hold event receiver. """
 
 		if self.selected_control is not None:
+			control = self.selected_control
+			if not (self.show_controls and control.visible and control.enabled):
+				self.on_release()
+				return
 			try:
-				self.selected_control.on_hold()
+				control.on_hold()
 			except Exception as e:
-				Log.error(f'Exception holding control {self.selected_control.name}: {e}')
+				Log.error(f'Exception holding control {control.name}: {e}')
 		elif self.submode is not None and hasattr(self, f'hold_{self.submode}'):
 			try:
 				getattr(self, f'hold_{self.submode}')()
@@ -180,11 +192,12 @@ class Mode:
 		""" Mode release event receiver. """
 
 		if self.selected_control is not None:
-			try:
-				self.selected_control.on_release()
-			except Exception as e:
-				Log.error(f'Exception releasing control {self.selected_control.name}: {e}')
+			control = self.selected_control
 			self.selected_control = None
+			try:
+				control.on_release()
+			except Exception as e:
+				Log.error(f'Exception releasing control {control.name}: {e}')
 		elif self.submode is not None and hasattr(self, f'release_{self.submode}'):
 			try:
 				getattr(self, f'release_{self.submode}')()
@@ -217,8 +230,11 @@ class Mode:
 				self.process()
 			except Exception as e:
 				Log.error(f'Error processing mode {self.name}: {e}')
-		for sprite in self.sprites:
-			sprite.process()
+		for sprite in list(self.sprites):
+			try:
+				sprite.process()
+			except Exception as e:
+				Log.error(f'Error processing sprite {sprite.name}: {e}')
 
 	def process(self):
 		""" Mode process stub method. """
@@ -254,6 +270,7 @@ class Mode:
 	def add_sprite(self, sprite) -> Sprite:
 		""" Adds sprite. """
 
+		sprite.mode = self
 		sprite.bind(self.app)
 		self.sprites.append(sprite)
 		return sprite
@@ -277,7 +294,7 @@ class Mode:
 
 		# sort by sprite positions, with Z-order taking priority
 		if self.sprite_positions is not None:
-			self.sprites.sort(key=lambda s: (s.y or 0) * self.app.screen_width + (s.x or 0))
+			self.sprites.sort(key=lambda s: (s.y or 0, s.x or 0))
 		if any(s.z is not None for s in self.sprites):
 			self.sprites.sort(key=lambda s: 100 if s.z is None else s.z, reverse=True)
 
@@ -305,11 +322,7 @@ class Mode:
 		self.mode_timer = None
 
 		if self.selected_control is not None:
-			try:
-				self.selected_control.on_release()
-			except Exception as e:
-				Log.error(f'Exception calling on_release() on control {self.selected_control.name}: {e}')
-			self.selected_control = None
+			self.on_release()
 
 		# call exit_submode on current submode if it exists, and set submode to None
 		if self.submode is not None and hasattr(self, f'exit_{self.submode}'):
@@ -323,6 +336,7 @@ class Mode:
 			Log.error(e)
 
 		self.submode = None
+		self.submode_timer = None
 
 	def exit(self):
 		""" Mode exit event stub method. """

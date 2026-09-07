@@ -112,7 +112,7 @@ class LogMode(Mode):
 		if psutil is None:
 			return
 		try:
-			max_graph_points = self.app.screen_width - 180
+			max_graph_points = max(1, self.app.screen_width - 180)
 			try:
 				self.cpu_load.append(int(psutil.cpu_percent()))
 				self.cpu_load = self.cpu_load[-max_graph_points:]
@@ -122,7 +122,7 @@ class LogMode(Mode):
 			if platform.system() != 'Darwin':
 				temperature_metrics = psutil.sensors_temperatures() or {}
 				for key in ('cpu-thermal', 'cpu_thermal', 'coretemp', 'k10temp', 'soc_thermal'):
-					if temperature_metrics.get(key) is not None:
+					if temperature_metrics.get(key):
 						temperature = int(temperature_metrics[key][0].current)
 						break
 			if temperature is not None:

@@ -11,9 +11,11 @@ class MouseInterface(PointerInterface):
 	def handle_event(self, event: Event) -> bool:
 		""" Handle mouse events. """
 
+		if getattr(event, 'button', None) != 1:
+			return False
 		if event.type == pygame.MOUSEBUTTONDOWN:
 			self.down = True
-			self.x, self.y = pygame.mouse.get_pos()
+			self.x, self.y = event.pos
 			return (self.x is not None and self.y is not None)
 		if event.type == pygame.MOUSEBUTTONUP:
 			self.down = False

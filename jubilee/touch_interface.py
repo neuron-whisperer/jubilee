@@ -1,5 +1,7 @@
 """ Jubilee touch interface class using evdev. """
 
+from collections import deque
+import glob
 import evdev
 from .base_classes import PointerInterface
 from .misc import Log
@@ -13,29 +15,32 @@ class TouchInterface(PointerInterface):
 		self.resolution = resolution
 		self.scale = scale
 		self.swap_axes = swap_axes
+		self._events = deque()
+		self._raw = [None, None]
+		self._pressed = False
 		if resolution is None or scale is None:
 			Log.warning('resolution and/or scale not specified')
+			return
 		try:
-			# probe /dev/input/event* to determine which one has bustype 24
-			device_number = None
-			for i in range(0, 10):
+			# Close rejected devices, and keep the selected descriptor rather than reopening it.
+			for device in sorted(glob.glob('/dev/input/event*')):
 				try:
-					d = evdev.InputDevice(f'/dev/input/event{i}')
+					d = evdev.InputDevice(device)
 					if d.info.bustype == 24:
-						device_number = i
+						self.touch = d
 						break
+					d.close()
 				except (OSError, FileNotFoundError):
 					pass
-			if device_number is None:
+			if self.touch is None:
 				Log.error('Could not find touchscreen input among device events')
 				return
-			Log.info(f'Found touchscreen on device /dev/input/event{device_number}')
-			device = f'/dev/input/event{device_number}'
-			self.touch = evdev.InputDevice(device)
 			self.touch.grab()
 			Log.info(f'Grabbed {device} - info: {self.touch.info}')
 		except Exception as e:
 			Log.error(f'Exception during grab: {e}')
+			if self.touch is not None:
+				self.touch.close()
 			self.touch = None
 
 	def detect_events(self) -> bool:
@@ -43,35 +48,41 @@ class TouchInterface(PointerInterface):
 
 		if self.touch is None:
 			return False
-		touched = False
 		try:
-			for event in self.touch.read():
+			if not self._events:
+				self._events.extend(self.touch.read())
+			while self._events:
+				event = self._events.popleft()
 				if event.type == evdev.ecodes.EV_ABS:
 					if event.code == evdev.ecodes.ABS_MT_POSITION_X:
-						scale_range = self.scale[0][1] - self.scale[0][0]
-						if scale_range != 0:
-							self.x = int(((event.value - self.scale[0][0]) / scale_range * self.scale[0][2] - (self.scale[0][2] - 1) / 2) * self.resolution[0])
+						self._raw[0] = event.value
 					elif event.code == evdev.ecodes.ABS_MT_POSITION_Y:
-						scale_range = self.scale[1][1] - self.scale[1][0]
-						if scale_range != 0:
-							self.y = int(((event.value - self.scale[1][0]) / scale_range * self.scale[1][2] - (self.scale[1][2] - 1) / 2) * self.resolution[1])
-				elif event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.BTN_TOUCH and event.value == 1:
-					if self.x is not None and self.y is not None:
-
-						if self.swap_axes is True:
-							self.x, self.y = self.y, self.x
-
+						self._raw[1] = event.value
+				elif event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.BTN_TOUCH:
+					self._pressed = bool(event.value)
+				elif event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT:
+					was_down = self.down
+					if self._pressed and all(value is not None for value in self._raw):
+						coordinates = []
+						for axis in range(2):
+							low, high, direction = self.scale[axis]
+							if high == low:
+								raise ValueError('Touch calibration range cannot be zero')
+							coordinates.append((self._raw[axis] - low) / (high - low) * direction - (direction - 1) / 2)
+						if self.swap_axes:
+							coordinates.reverse()
+						self.x, self.y = [int(max(0, min(1, value)) * (size - 1)) for value, size in zip(coordinates, self.resolution)]
 						self.down = True
-						touched = True
-				elif event.type == evdev.ecodes.EV_KEY and event.code == evdev.ecodes.BTN_TOUCH and event.value == 0:
-					self.down = False
-					self.x = None
-					self.y = None
+					else:
+						self.down = False
+						self.x = self.y = None
+					if self.down != was_down:
+						return self.down
 		except BlockingIOError:
 			pass
 		except Exception as e:
 			Log.debug(f'Touch read error: {e}')
-		return touched
+		return False
 
 	def release(self):
 		""" Release touch interface. """
@@ -81,3 +92,6 @@ class TouchInterface(PointerInterface):
 				self.touch.ungrab()
 			except Exception as e:
 				Log.debug(f'Touch ungrab error: {e}')
+			finally:
+				self.touch.close()
+				self.touch = None

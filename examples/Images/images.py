@@ -100,7 +100,7 @@ class ImagesMode(Mode):
 		""" Process method for Images mode. """
 
 		# process bubbles  (sprites are automatically processed)
-		for b in self.bubbles:
+		for b in list(self.bubbles):
 			if b.process():
 				self.bubbles.remove(b)
 		if random.randint(0, 40) == 0:

@@ -34,10 +34,10 @@ worker_process_periodic_fps = 1
 # Save and restore app state between sessions
 persist_app_state = true
 
-# App state filename (relative to CWD, or absolute path)
+# App state filename (relative to project_path, or absolute path)
 app_state_filename = "app_state.json"
 
-# Initial app state template filename (relative to CWD, or absolute path)
+# Initial app state template filename (relative to project_path, or absolute path)
 app_state_start_filename = "app_state_start.json"
 
 # Enable keyboard input

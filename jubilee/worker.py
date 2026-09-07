@@ -1,6 +1,6 @@
 """ Jubilee Worker class. """
 
-import datetime, json, multiprocessing, os, platform, queue, subprocess, sys, time
+import datetime, json, multiprocessing, os, platform, queue, signal, subprocess, sys, time
 import __main__
 from .misc import Config, Log
 
@@ -82,12 +82,15 @@ class Worker:
 			# restore class-level paths for child process
 			Log.project_path = self.project_path
 			Config.project_path = self.project_path
+			# Forked workers must not run the parent's App cleanup signal handler.
+			for signum in (signal.SIGINT, signal.SIGTERM):
+				signal.signal(signum, lambda *_: self.exit())
 
 			Log.info('Starting')
 			self.start_worker()
 
 			while True:
-				loop_start = time.time()
+				loop_start = time.monotonic()
 				self.receive_messages()
 
 				# call main process function
@@ -95,19 +98,20 @@ class Worker:
 
 				# call periodic process function occasionally
 				process_periodic_fps = self.config.get('worker_process_periodic_fps', 1)
-				if process_periodic_fps is not None:
-					elapsed = time.time() - (self.last_periodic or 0)
+				if process_periodic_fps is not None and process_periodic_fps > 0:
+					elapsed = time.monotonic() - (self.last_periodic or 0)
 					if elapsed >= 1 / process_periodic_fps:
 						self.on_process_periodic()
 
 				# delay to next loop
-				loop_time = time.time() - loop_start
+				loop_time = time.monotonic() - loop_start
 				delay = 1 / max(1, int(self.config.get('worker_process_fps', 20))) - loop_time
 				if delay > 0:
 					time.sleep(delay)
 
 		except Exception as e:
 			Log.error(e)
+			raise
 
 	def manage_config(self):
 		""" Config manager. """
@@ -117,11 +121,21 @@ class Worker:
 		if os.path.isfile(self.config_filename) is False:
 			self.config_date = None
 			return
-		config_date = os.path.getmtime(self.config_filename)
+		try:
+			config_date = os.path.getmtime(self.config_filename)
+		except OSError as e:
+			Log.error(f'Keeping previous config after stat failure: {e}')
+			return
 		if config_date != self.config_date:
 			Log.info(f'Loading config ({self.config_date} != {config_date})')
+			try:
+				config = Config.load(self.config_filename, defaults=self.config_defaults, strict=True)
+				json.dumps(config, ensure_ascii=True)
+			except Exception as e:
+				Log.error(f'Keeping previous config after reload failure: {e}')
+				return
 			self.config_date = config_date
-			self.config = Config.load(self.config_filename, defaults=self.config_defaults)
+			self.config = config
 			self.send_updated_config()
 
 	def manage_log(self):
@@ -150,8 +164,8 @@ class Worker:
 			return
 		if rotate is True:
 			filename = f'log_{datetime.datetime.now().strftime(log_format)}.txt'
-			Log.backup(backup_filename=filename)
-			self.log_date = datetime.datetime.now()
+			if Log.backup(backup_filename=filename):
+				self.log_date = datetime.datetime.now()
 
 	def manage_wifi(self):
 		""" WiFi watchdog manager. Periodically checks connectivity and performs
@@ -167,7 +181,7 @@ class Worker:
 			return
 
 		# timer-based throttling: only run at configured interval
-		now = time.time()
+		now = time.monotonic()
 		interval = self.config.get('wifi_ping_interval', 300)
 		if self.wifi_last_check is not None and (now - self.wifi_last_check) < interval:
 			return
@@ -189,7 +203,6 @@ class Worker:
 			target = self._wifi_detect_gateway()
 		if target is None:
 			Log.warning('WiFi watchdog: no ping target configured and could not detect gateway')
-			return
 
 		interface = self.config.get('wifi_interface', 'wlan0')
 		ping_count = self.config.get('wifi_ping_count', 3)
@@ -225,7 +238,7 @@ class Worker:
 
 		try:
 			result = subprocess.run(
-				['ip', 'route', 'show', 'default'],
+				['ip', 'route', 'show', 'default', 'dev', self.config.get('wifi_interface', 'wlan0')],
 				capture_output=True, text=True, timeout=5
 			)
 			if result.returncode == 0 and result.stdout.strip():
@@ -239,6 +252,10 @@ class Worker:
 	def _wifi_ping(self, target, interface, count, timeout):
 		""" Pings target through interface. Returns True if reachable. """
 
+		if target is None:
+			target = self._wifi_detect_gateway()
+			if target is None:
+				return False
 		try:
 			result = subprocess.run(
 				['ping', '-c', str(count), '-W', str(timeout), '-I', interface, target],
@@ -289,16 +306,10 @@ class Worker:
 	def _wifi_interruptible_sleep(self, seconds):
 		""" Sleeps for the specified duration while remaining responsive to exit messages. """
 
-		end = time.time() + seconds
-		while time.time() < end:
-			try:
-				message = self.app_queue.get_nowait()
-				parsed = json.loads(message)
-				if parsed.get('action') == 'exit':
-					self.exit()
-			except queue.Empty:
-				pass
-			remaining = end - time.time()
+		end = time.monotonic() + seconds
+		while time.monotonic() < end:
+			self.receive_messages()
+			remaining = end - time.monotonic()
 			if remaining > 0:
 				time.sleep(min(remaining, 0.5))
 
@@ -322,15 +333,17 @@ class Worker:
 
 		# step 2: interface restart (ip link down/up)
 		Log.info('WiFi watchdog: Step 2 - interface restart')
-		self._wifi_run_command(
-			['ip', 'link', 'set', interface, 'down'],
-			timeout=10, description='interface down'
-		)
-		self._wifi_interruptible_sleep(2)
-		self._wifi_run_command(
-			['ip', 'link', 'set', interface, 'up'],
-			timeout=10, description='interface up'
-		)
+		try:
+			self._wifi_run_command(
+				['ip', 'link', 'set', interface, 'down'],
+				timeout=10, description='interface down'
+			)
+			self._wifi_interruptible_sleep(2)
+		finally:
+			self._wifi_run_command(
+				['ip', 'link', 'set', interface, 'up'],
+				timeout=10, description='interface up'
+			)
 		self._wifi_send_recovery('interface restart')
 		self._wifi_interruptible_sleep(15)
 		if self._wifi_ping(target, interface, ping_count, ping_timeout):
@@ -357,15 +370,17 @@ class Worker:
 
 		# step 4: reload WiFi driver (modprobe -r / modprobe brcmfmac)
 		Log.info('WiFi watchdog: Step 4 - driver reload')
-		self._wifi_run_command(
-			['modprobe', '-r', 'brcmfmac'],
-			timeout=10, description='modprobe remove'
-		)
-		self._wifi_interruptible_sleep(3)
-		self._wifi_run_command(
-			['modprobe', 'brcmfmac'],
-			timeout=10, description='modprobe load'
-		)
+		try:
+			self._wifi_run_command(
+				['modprobe', '-r', 'brcmfmac'],
+				timeout=10, description='modprobe remove'
+			)
+			self._wifi_interruptible_sleep(3)
+		finally:
+			self._wifi_run_command(
+				['modprobe', 'brcmfmac'],
+				timeout=10, description='modprobe load'
+			)
 		self._wifi_interruptible_sleep(10)
 		self._wifi_run_command(
 			['systemctl', 'restart', 'NetworkManager'],
@@ -394,16 +409,36 @@ class Worker:
 			Log.info(f'WiFi watchdog: deferring reboot ({self.wifi_consecutive_failures}/{reboot_after_failures} consecutive failures)')
 			return
 
-		# check daily reboot cap
+		# Persist reservations before reboot; in-memory counters reset on every boot.
 		today = time.strftime('%Y%m%d')
-		if self.wifi_reboot_date != today:
+		state_filename = os.path.join(self.project_path, 'wifi_reboot_state.toml')
+		try:
+			try:
+				state = Config.load(state_filename, strict=True)
+			except FileNotFoundError:
+				# A new installation has no budget yet; a broken symlink is not one.
+				if os.path.lexists(state_filename):
+					raise
+				state = {'date': today, 'count': 0}
+			datetime.datetime.strptime(state['date'], '%Y%m%d')
+			count = state['count']
+			if type(count) is not int or count < 0:
+				raise ValueError('Invalid WiFi reboot counter')
+			self.wifi_reboot_count_today = count if state.get('date') == today else 0
 			self.wifi_reboot_date = today
-			self.wifi_reboot_count_today = 0
+		except Exception as e:
+			Log.error(f'WiFi watchdog: cannot read reboot budget; refusing reboot: {e}')
+			return
 
 		if self.wifi_reboot_count_today >= reboot_daily_max:
 			Log.error(f'WiFi watchdog: daily reboot limit ({reboot_daily_max}) reached, manual intervention required')
 			return
 
+		try:
+			Config.save({'date': today, 'count': self.wifi_reboot_count_today + 1}, state_filename)
+		except Exception as e:
+			Log.error(f'WiFi watchdog: cannot persist reboot budget; refusing reboot: {e}')
+			return
 		self.wifi_reboot_count_today += 1
 		Log.warning(f'WiFi watchdog: initiating reboot ({self.wifi_reboot_count_today}/{reboot_daily_max} today)')
 		self._wifi_send_recovery('reboot')
@@ -426,7 +461,7 @@ class Worker:
 	def on_process_periodic(self):
 		""" Periodic (low-frequency) worker processing event receiver. """
 
-		self.last_periodic = time.time()
+		self.last_periodic = time.monotonic()
 		if self.config_manager is True:
 			self.manage_config()
 		if self.log_manager is True:
@@ -459,9 +494,13 @@ class Worker:
 		while True:
 			try:
 				message = self.app_queue.get_nowait()
-				self.process_message(json.loads(message), sender='App')
 			except queue.Empty:
 				return
+			except (EOFError, OSError, ValueError) as e:
+				Log.error(f'App queue unavailable: {e}')
+				return
+			try:
+				self.process_message(json.loads(message), sender='App')
 			except Exception as e:
 				Log.error(e)
 				continue
@@ -482,10 +521,17 @@ class Worker:
 			Log.warning(f'Received unknown message: {message}')
 
 	def update_config(self, key, value):
+		previous_config = self.config.copy()
 		self.config[key] = value
-		self.write_config()
+		try:
+			self.write_config()
+		except Exception:
+			self.config.clear()
+			self.config.update(previous_config)
+			raise
 
 	def write_config(self):
+		json.dumps(self.config, ensure_ascii=True)
 		Config.save(self.config, self.config_filename)
 		self.config_date = os.path.getmtime(self.config_filename) if os.path.isfile(self.config_filename) else None
 		self.send_updated_config()

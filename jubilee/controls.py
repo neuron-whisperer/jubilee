@@ -93,6 +93,7 @@ class LabeledControl(Control):
 				Log.error(f'get_text_size failed: {e}')
 				return
 		self.control.x = self.x + offset
+		self.control.y = self.y
 		self.width = offset + self.control.width
 		self.height = max(label_height, self.control.height)
 
@@ -105,17 +106,19 @@ class LabeledControl(Control):
 	def collide(self, x: int|float, y: int|float):
 		""" LabeledControl collide function - tests only against underlying control. """
 
-		return self.control.collide(x, y)
+		return self.control.visible and self.control.collide(x, y)
 
 	def on_click(self):
 		""" LabeledControl on_click event receiver. """
 
-		self.control.on_click()
+		if self.control.visible and self.control.enabled:
+			self.control.on_click()
 
 	def on_hold(self):
 		""" LabeledControl on_hold event receiver. """
 
-		self.control.on_hold()
+		if self.control.visible and self.control.enabled:
+			self.control.on_hold()
 
 	def on_release(self):
 		""" LabeledControl on_release event receiver. """
@@ -125,6 +128,8 @@ class LabeledControl(Control):
 	def draw(self):
 		""" LabeledControl draw function. """
 
+		if not self.control.visible:
+			return
 		try:
 			y = self.control.y + (self.control.height / 2)
 			self.app.draw_text(self.caption, self.x, y, color=self.color, font=self.label_font, alignment='left')
@@ -211,11 +216,13 @@ class HoldButton(Button):
 	def on_hold(self):
 		""" HoldButton hold event receiver. """
 
-		if self.hold_step + 1 == self.hold_steps:
+		completed = self.hold_step < self.hold_steps and self.hold_step + 1 >= self.hold_steps
+		# Commit progress before callbacks, which may release the control or exit its mode.
+		self.hold_step = min(self.hold_step + 1, self.hold_steps)
+		if completed:
 			super().on_click()
 		else:
 			super().on_hold()
-		self.hold_step = min(self.hold_step + 1, self.hold_steps)
 
 	def on_release(self):
 		""" HoldButton release event receiver. """
@@ -366,6 +373,7 @@ class SelectButton(Control):
 
 		if self.values is not None and len(self.items) != len(self.values):
 			Log.error(f'len(self.items) ({len(self.items)}) != len(self.values) ({len(self.values)})')
+			self.values = None
 			return
 		self.set_selected_index(selected_index)
 
@@ -375,7 +383,7 @@ class SelectButton(Control):
 		self.items = list(items) if items is not None else []
 		if len(self.items) == 0:
 			self.selected_index = None
-		elif reset_to_first or self.selected_item not in self.items or (self.selected_index is not None and self.selected_index >= len(self.items)):
+		elif reset_to_first or self.selected_item not in self.items:
 			self.selected_index = 0
 		elif self.selected_item in self.items:
 			self.selected_index = self.items.index(self.selected_item)
@@ -387,7 +395,9 @@ class SelectButton(Control):
 			self.value = None
 			self.values = None
 			return
-		self.set_selected_index(self.selected_index)
+		selected_index = self.selected_index
+		self.selected_index = None
+		self.set_selected_index(selected_index)
 
 	def on_click(self):
 		""" SelectButton on_click event receiver. """

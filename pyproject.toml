@@ -1,10 +1,11 @@
 [project]
 name = "jubilee"
-version = "0.42"
+version = "0.44"
 authors = [
 	{name = "David Stein", email = "jubilee@steinemail.com"},
 ]
 description = "Lightweight application framework built on pygame"
+requires-python = ">=3.10"
 keywords = ["pygame"]
 classifiers = ["Development Status :: 3 - Alpha", "Intended Audience :: Developers"]
 readme = "README.md"
@@ -19,7 +20,7 @@ Repository = "https://github.com/neuron-whisperer/jubilee.git"
 Issues = "https://github.com/neuron-whisperer/jubilee/issues"
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -30,3 +31,4 @@ dependencies = {file = ["requirements.txt"]}
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["jubilee", "jubilee.*"]
