@@ -21,7 +21,7 @@ class HeadlessApp(App):
 		if action == 'pong':		# process message
 			ping_id = message.get('id')
 			if ping_id not in self.pings:
-				Log.error(f'Ping ID {ping_id} not pings')
+				Log.error(f'Received pong for unknown ping ID {ping_id}')
 			else:
 				self.pings[ping_id] = True
 				Log.info(f'Received pong: {ping_id} from {sender}')
@@ -29,13 +29,13 @@ class HeadlessApp(App):
 			super().process_message(message, sender)
 
 class HeadlessMode(Mode):
-	""" No_Display mode. """
+	""" Headless mode. """
 
 	def init(self):
 		self.name = 'Headless'
 
 	def process(self):
-		""" Process method for No_Display mode. """
+		""" Process method for Headless mode. """
 		
 		if random.randint(0, 9) > 0:
 			return

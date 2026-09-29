@@ -59,7 +59,7 @@ class SoundMode(Mode):
 		self.app.play_sound(sounds[self.sound_index])
 
 	def draw(self):
-		""" Draw method for Sound_Music mode. """
+		""" Draw method for Sound mode. """
 
 		self.app.draw_text(f'Music: {self.music[self.music_index]}', 10, 10)
 		status = 'Playing' if self.app.is_music_playing() else 'Stopped'

@@ -1,9 +1,9 @@
 # MANIFEST.in
 include README.md LICENSE requirements.txt
 include Jubilee?Reference.md
-recursive-include jubilee *.toml
 recursive-include tests *.py
 recursive-include examples *.py *.toml *.png *.jpg *.wav *.ogg *.mp3
 include examples/Script/script.txt
+include examples/CREDITS.md
 global-exclude .DS_Store *.pyc
 include CHANGELOG.md

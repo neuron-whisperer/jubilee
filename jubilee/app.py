@@ -49,6 +49,9 @@ class App:
 		# single-instance check
 		if self.check_running_process():
 			print('Another instance of this script is already running.')
+			# Nothing has started yet; skip cleanup so this launch does not write
+			# to the running instance's log.
+			self._exiting = True
 			sys.exit(0)
 
 		# start log
@@ -505,11 +508,14 @@ class App:
 							self.keyboard_buffer_chars = self.keyboard_buffer_chars[:-1]
 							self.keyboard_buffer = self.keyboard_buffer[:-1]
 					elif k not in ('return', 'left shift', 'left ctrl', 'right shift', 'right ctrl', 'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12', 'insert' ,'home', 'end', 'right', 'left', 'up', 'down', 'delete', 'escape'):
-						self.keyboard_buffer_chars.append(k)
 						if any(shift in self.held_keys for shift in ['left shift', 'right shift']):
-							self.keyboard_buffer += Misc.key_shift_symbols.get(k, Misc.key_symbols.get(k, ''))
-						elif k in Misc.key_symbols:
-							self.keyboard_buffer += Misc.key_symbols[k]
+							symbol = Misc.key_shift_symbols.get(k, Misc.key_symbols.get(k, ''))
+						else:
+							symbol = Misc.key_symbols.get(k, '')
+						# Track only keys that added text, so backspace stays aligned.
+						if symbol:
+							self.keyboard_buffer_chars.append(k)
+							self.keyboard_buffer += symbol
 
 		else:
 			self.new_keys = []
@@ -836,7 +842,7 @@ class App:
 			flags = pygame.BLEND_ALPHA_SDL2 if i.get_alpha() is not None else 0
 		try:
 			if scale is not None:
-				if isinstance(scale, tuple):
+				if isinstance(scale, (tuple, list)):
 					i = self.scale_image(i, scale[0], scale[1])
 				else:
 					i = self.scale_image(i, scale)
@@ -1310,8 +1316,10 @@ class App:
 		if mode_name not in self.modes:
 			Log.error(f'No mode named {mode_name}')
 			return
-		if self.set_app_state('scene', scene_number) is False:
-			return
+		# Navigation proceeds even when persistence fails; the failure is logged.
+		self.app_state['scene'] = scene_number
+		if self.persist_app_state is True and self.save_app_state() is False:
+			Log.warning(f'Scene {scene_number} selected but not persisted')
 		self.set_mode(mode_name, mode_parameters=scene.copy())
 		Log.debug(f'Selected scene {scene_number} ({scene})')
 
@@ -1388,23 +1396,32 @@ class App:
 		self.standard_font_sizes = _LazyFontDict(self.standard_font_name)
 
 	def change_font(self):
-		""" Chooses next font in the font list as the default font. """
+		""" Chooses next font in the font list as the default font. Returns the
+				requested font name (applied when the config manager confirms it). """
 
 		if not self.font_list:
 			Log.warning('No fonts available to cycle through')
 			return
 		current_index = -1 if self.standard_font_name not in self.font_list else self.font_list.index(self.standard_font_name)
 		new_standard_font = self.font_list[(current_index + 1) % len(self.font_list)]
-		self.update_config('font', new_standard_font)
-		Log.info(f'Changed font to {new_standard_font}')
+		if self.update_config('font', new_standard_font):
+			Log.info(f'Changed font to {new_standard_font}')
+			return new_standard_font
+		return None
 
 	def update_config(self, key, value):
-		""" Updates config key/value pair by sending a message to worker. """
+		""" Updates config key/value pair by sending a message to the config-manager
+				worker. Returns whether a config manager received the request. """
 
 		message = {'action': 'update config', 'key': key, 'value': value}
-		for name in (name for name, worker in self.workers.items() if worker.config_manager):
+		managers = [name for name, worker in self.workers.items() if worker.config_manager]
+		if not managers:
+			Log.error(f'Cannot set {key}: no config-manager worker')
+			return False
+		for name in managers:
 			self.send_message(message, name)
 		Log.info(f'Setting {key} to {value}')
+		return True
 
 	# exit functions
 

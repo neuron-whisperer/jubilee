@@ -229,6 +229,8 @@ class ContractEdges(unittest.TestCase):
         with self.assertRaises(SystemExit):
             worker._wifi_escalating_recovery('gateway', 'wlan0', 1, 1)
         commands = [call.args[0] for call in worker._wifi_run_command.call_args_list]
+        # Privileged recovery runs through non-interactive sudo unless already root.
+        commands = [c[2:] if c[:2] == ['sudo', '-n'] else c for c in commands]
         self.assertIn(['ip', 'link', 'set', 'wlan0', 'up'], commands)
 
     def test_wifi_exit_reloads_removed_driver(self):
@@ -240,6 +242,8 @@ class ContractEdges(unittest.TestCase):
         with self.assertRaises(SystemExit):
             worker._wifi_escalating_recovery('gateway', 'wlan0', 1, 1)
         commands = [call.args[0] for call in worker._wifi_run_command.call_args_list]
+        # Privileged recovery runs through non-interactive sudo unless already root.
+        commands = [c[2:] if c[:2] == ['sudo', '-n'] else c for c in commands]
         self.assertIn(['modprobe', 'brcmfmac'], commands)
 
     def test_http_respects_case_insensitive_header_override(self):
@@ -306,10 +310,10 @@ class ContractEdges(unittest.TestCase):
         worker = Worker.__new__(Worker)
         worker.config = {'keep': 7}
         worker.config_filename = 'not-written.toml'
-        with patch.object(Config, 'save') as save:
+        with patch.object(Config, 'update') as update:
             with self.assertRaises(TypeError):
                 worker.update_config('date', datetime.date(2026, 9, 7))
-        save.assert_not_called()
+        update.assert_not_called()
         self.assertEqual(worker.config, {'keep': 7})
 
     def test_app_scheduler_ignores_wall_clock_rollback(self):

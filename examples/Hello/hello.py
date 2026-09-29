@@ -10,7 +10,7 @@ class HelloApp(App):
 	def init(self):
 		self.add_worker(HelloWorker)
 		self.add_mode(HelloMode)
-		self.set_mode('Hello')						# note: first mode is selected by default
+		# note: the first added mode is selected by default
 
 	def process_message(self, message, sender: str=None):
 		""" Process message from worker. """

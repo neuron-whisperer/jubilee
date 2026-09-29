@@ -34,7 +34,8 @@ class PackagingTests(unittest.TestCase):
                 metadata = Parser().parsestr(wheel.read(next(name for name in names if name.endswith('/METADATA'))).decode())
                 self.assertEqual(metadata['Requires-Python'], '>=3.10')
                 self.assertEqual(metadata['License-Expression'], 'GPL-3.0-or-later')
-                self.assertIn('jubilee/config.toml', names)
+                # Configuration lives in each project's config.toml; the package ships none.
+                self.assertFalse(any(name.endswith('.toml') for name in names if name.startswith('jubilee/')))
                 package = root / 'installed'
                 wheel.extractall(package)
                 env = dict(os.environ, PYTHONPATH=str(package), SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='dummy')
@@ -44,6 +45,7 @@ class PackagingTests(unittest.TestCase):
             with tarfile.open(next(output.glob('*.tar.gz'))) as archive:
                 names = [name.split('/', 1)[-1] for name in archive.getnames()]
                 for required in ('Jubilee Reference.md', 'tests/test_regressions.py', 'tests/runtime_probe.py',
-                                 'examples/Hello/hello.py', 'examples/Sound/music/Funshine.mp3'):
+                                 'examples/Hello/hello.py', 'examples/Sound/music/Funshine.mp3',
+                                 'examples/CREDITS.md'):
                     self.assertIn(required, names)
                 self.assertFalse(any('.git/' in name or name.endswith('log.txt') for name in names))

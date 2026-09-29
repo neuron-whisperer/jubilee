@@ -1,6 +1,6 @@
 """ Jubilee Worker class. """
 
-import datetime, json, multiprocessing, os, platform, queue, signal, subprocess, sys, time
+import copy, datetime, json, multiprocessing, os, platform, queue, signal, subprocess, sys, time
 import __main__
 from .misc import Config, Log
 
@@ -45,7 +45,17 @@ class Worker:
 		self.base_path = os.path.dirname(os.path.realpath(__main__.__file__))
 		self.project_path = Config.project_path or self.base_path
 		self.config_filename = os.path.join(self.project_path, 'config.toml')
-		self.config = Config.load(self.config_filename, defaults=self.config_defaults)
+		# carry the App's log levels (e.g. from debug/console_debug) into the worker process
+		self.log_levels = (dict(Log.file_levels), Log.console_level)
+		self.config_load_failed = False
+		try:
+			# An existing file must parse; absent optional configuration uses defaults.
+			self.config = Config.load(self.config_filename, defaults=self.config_defaults,
+				strict=os.path.isfile(self.config_filename))
+		except Exception as e:
+			Log.error(f'Using default config after load failure: {e}')
+			self.config = copy.deepcopy(self.config_defaults)
+			self.config_load_failed = True
 		self.config_date = None
 		self.log_date = None
 		if os.path.isfile(self.config_filename) is True:
@@ -82,6 +92,9 @@ class Worker:
 			# restore class-level paths for child process
 			Log.project_path = self.project_path
 			Config.project_path = self.project_path
+			file_levels, console_level = getattr(self, 'log_levels', ({}, Log.console_level))
+			Log.file_levels.update(file_levels)
+			Log.set_console_level(console_level)
 			# Forked workers must not run the parent's App cleanup signal handler.
 			for signum in (signal.SIGINT, signal.SIGTERM):
 				signal.signal(signum, lambda *_: self.exit())
@@ -93,15 +106,22 @@ class Worker:
 				loop_start = time.monotonic()
 				self.receive_messages()
 
-				# call main process function
-				self.on_process()
+				# call main process function; errors are logged and the worker keeps
+				# running, as App does for mode processing
+				try:
+					self.on_process()
+				except Exception as e:
+					Log.error(f'Error processing worker {self.name}: {e}')
 
 				# call periodic process function occasionally
 				process_periodic_fps = self.config.get('worker_process_periodic_fps', 1)
 				if process_periodic_fps is not None and process_periodic_fps > 0:
 					elapsed = time.monotonic() - (self.last_periodic or 0)
 					if elapsed >= 1 / process_periodic_fps:
-						self.on_process_periodic()
+						try:
+							self.on_process_periodic()
+						except Exception as e:
+							Log.error(f'Error in periodic processing of worker {self.name}: {e}')
 
 				# delay to next loop
 				loop_time = time.monotonic() - loop_start
@@ -136,6 +156,7 @@ class Worker:
 				return
 			self.config_date = config_date
 			self.config = config
+			self.config_load_failed = False
 			self.send_updated_config()
 
 	def manage_log(self):
@@ -163,7 +184,8 @@ class Worker:
 			Log.warning(f'Unrecognized log_rotation value: {rotation}')
 			return
 		if rotate is True:
-			filename = f'log_{datetime.datetime.now().strftime(log_format)}.txt'
+			# name the archive for the period it contains
+			filename = f'log_{self.log_date.strftime(log_format)}.txt'
 			if Log.backup(backup_filename=filename):
 				self.log_date = datetime.datetime.now()
 
@@ -294,7 +316,7 @@ class Worker:
 		try:
 			result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
 			if result.returncode != 0:
-				Log.debug(f'WiFi watchdog: {description} returned {result.returncode}: {result.stderr.strip()}')
+				Log.warning(f'WiFi watchdog: {description} returned {result.returncode}: {result.stderr.strip()}')
 			return result.returncode == 0
 		except subprocess.TimeoutExpired:
 			Log.warning(f'WiFi watchdog: {description} timed out after {timeout}s')
@@ -302,6 +324,11 @@ class Worker:
 		except Exception as e:
 			Log.error(f'WiFi watchdog: {description} failed: {e}')
 			return False
+
+	def _wifi_privileged(self, args):
+		""" Prefixes non-interactive sudo when not root; kiosk services run as a login account. """
+
+		return list(args) if os.geteuid() == 0 else ['sudo', '-n', *args]
 
 	def _wifi_interruptible_sleep(self, seconds):
 		""" Sleeps for the specified duration while remaining responsive to exit messages. """
@@ -335,13 +362,13 @@ class Worker:
 		Log.info('WiFi watchdog: Step 2 - interface restart')
 		try:
 			self._wifi_run_command(
-				['ip', 'link', 'set', interface, 'down'],
+				self._wifi_privileged(['ip', 'link', 'set', interface, 'down']),
 				timeout=10, description='interface down'
 			)
 			self._wifi_interruptible_sleep(2)
 		finally:
 			self._wifi_run_command(
-				['ip', 'link', 'set', interface, 'up'],
+				self._wifi_privileged(['ip', 'link', 'set', interface, 'up']),
 				timeout=10, description='interface up'
 			)
 		self._wifi_send_recovery('interface restart')
@@ -356,7 +383,7 @@ class Worker:
 		# step 3: restart NetworkManager
 		Log.info('WiFi watchdog: Step 3 - NetworkManager restart')
 		self._wifi_run_command(
-			['systemctl', 'restart', 'NetworkManager'],
+			self._wifi_privileged(['systemctl', 'restart', 'NetworkManager']),
 			timeout=30, description='NetworkManager restart'
 		)
 		self._wifi_send_recovery('NetworkManager restart')
@@ -372,18 +399,18 @@ class Worker:
 		Log.info('WiFi watchdog: Step 4 - driver reload')
 		try:
 			self._wifi_run_command(
-				['modprobe', '-r', 'brcmfmac'],
+				self._wifi_privileged(['modprobe', '-r', 'brcmfmac']),
 				timeout=10, description='modprobe remove'
 			)
 			self._wifi_interruptible_sleep(3)
 		finally:
 			self._wifi_run_command(
-				['modprobe', 'brcmfmac'],
+				self._wifi_privileged(['modprobe', 'brcmfmac']),
 				timeout=10, description='modprobe load'
 			)
 		self._wifi_interruptible_sleep(10)
 		self._wifi_run_command(
-			['systemctl', 'restart', 'NetworkManager'],
+			self._wifi_privileged(['systemctl', 'restart', 'NetworkManager']),
 			timeout=30, description='NetworkManager restart after driver reload'
 		)
 		self._wifi_send_recovery('driver reload')
@@ -521,16 +548,21 @@ class Worker:
 			Log.warning(f'Received unknown message: {message}')
 
 	def update_config(self, key, value):
-		previous_config = self.config.copy()
+		""" Updates one key in config.toml, preserving the file's other settings
+				and comments, and sends the updated config to the app. """
+
+		json.dumps({key: value}, ensure_ascii=True)
+		Config.update({key: value}, self.config_filename)
 		self.config[key] = value
-		try:
-			self.write_config()
-		except Exception:
-			self.config.clear()
-			self.config.update(previous_config)
-			raise
+		self.config_date = os.path.getmtime(self.config_filename) if os.path.isfile(self.config_filename) else None
+		self.send_updated_config()
 
 	def write_config(self):
+		""" Writes the complete config dict and sends it to the app. Refused
+				after a failed load, so defaults never replace a damaged file. """
+
+		if getattr(self, 'config_load_failed', False):
+			raise ValueError('Cannot write config after a failed load; repair config.toml first')
 		json.dumps(self.config, ensure_ascii=True)
 		Config.save(self.config, self.config_filename)
 		self.config_date = os.path.getmtime(self.config_filename) if os.path.isfile(self.config_filename) else None

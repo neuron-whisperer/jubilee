@@ -21,7 +21,7 @@ class Bubble:
 		return (self.y < -10)
 
 	def draw(self):
-		""" Draw method for Robot. """
+		""" Draw method for Bubble. """
 
 		self.app.blit('bubble', self.x, self.y, position=SpritePosition.Center)
 

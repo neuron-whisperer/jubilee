@@ -17,7 +17,7 @@ class Robot(Sprite):
 		mode.add_sprite(self)
 
 	def process(self):
-		""" Process method for Robot. Moves randomly. """
+		""" Process method for Robot. Cycles through scale, flip, rotation and hue effects. """
 
 		graphics_mode = (self.mode.mode_timer // 40) % 4
 		graphics_count = self.mode.mode_timer % 40
@@ -40,7 +40,7 @@ class ImageEffectsApp(App):
 	""" ImageEffects app. """
 
 	def init(self):
-		""" Images app initializer. """
+		""" ImageEffects app initializer. """
 		
 		self.add_mode(ImageEffectsMode)
 

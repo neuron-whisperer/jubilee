@@ -2,6 +2,7 @@
 
 - [Jubilee Reference](#jubilee-reference)
   - [App Class Reference](#app-class-reference)
+    - [Behavior Details](#behavior-details)
     - [Example App](#example-app)
     - [App Class Fields and Methods](#app-class-fields-and-methods)
     - [Drawing](#drawing)
@@ -20,23 +21,25 @@
       - [Control Class Fields and Methods](#control-class-fields-and-methods)
       - [Notable Control Subclasses](#notable-control-subclasses)
     - [Submodes](#submodes)
+    - [Built-in Modes](#built-in-modes)
   - [Animation Libraries and Sprites](#animation-libraries-and-sprites)
     - [Sprite Class Fields and Methods](#sprite-class-fields-and-methods)
   - [Worker Class Reference](#worker-class-reference)
     - [Example Worker](#example-worker)
     - [Worker Class Fields and Methods](#worker-class-fields-and-methods)
   - [config.toml](#config-toml)
+    - [WiFi Watchdog](#wifi-watchdog)
   - [misc.py Reference](#misc-py-reference)
     - [Config](#config)
     - [Log](#log)
     - [Color](#color)
     - [Misc](#misc)
+  - [Event Receivers and Internal Methods](#event-receivers-and-internal-methods)
 
 ## App Class Reference
 
-### Version 0.44 Corrections
+### Behavior Details
 
-Version 0.44 includes the following corrections:
 
 - Apps without Modes still process events and exchange Worker messages. Worker
   names must be unique; duplicate additions raise ValueError without replacing
@@ -54,7 +57,8 @@ Version 0.44 includes the following corrections:
 - Mouse input uses the left button and event coordinates. A press/release in one
   update still releases the control. Touch input uses complete SYN_REPORT
   packets, clamps to valid pixels, and swaps normalized axes before scaling.
-  The device selector retains the existing bustype-24 hardware restriction.
+  On Linux the pointer is always a touch device, selected from bustype-24
+  (I2C) input devices; mouse input is used only on macOS.
 - SelectButton.set_items() refreshes the caption/value even at the same index.
   Omitting values retains an existing same-length mapping. Invalid mappings are
   logged and cleared. Removing a selected control releases it immediately.
@@ -62,19 +66,25 @@ Version 0.44 includes the following corrections:
   Zero auto_animate_rate disables animation, including constructor/set_sequence
   arguments. Invalid frame indices return False. Missing images clear dimensions.
   Transforms are cached: after editing a static Surface's pixels in place, call
-  set_static_image(surface) again; replace animation frames rather than mutating
+  set_static_image(image) again with that Surface; replace animation frames rather than mutating
   their pixels in place.
 - Config.load() accepts strict=False; True propagates read/parse errors instead
   of falling back to defaults. Missing files return defaults only in non-strict
   mode; strict mode raises FileNotFoundError. Defaults are
   independently copied. Worker reload failures keep the previous config and
-  retry later. Failed update_config() writes restore previous values and propagate
-  to the message handler for logging. IPC config values must be JSON-serializable.
+  retry later. Worker.update_config() changes one key in config.toml through
+  Config.update(), preserving the file's other settings, comments and
+  permissions; a failed write leaves the in-memory config unchanged and
+  propagates to the message handler for logging. After a failed initial load the
+  Worker uses defaults but never writes them over the damaged file. IPC config
+  values must be JSON-serializable. Worker processing errors are logged and the
+  Worker keeps running.
   A nonpositive worker_process_periodic_fps disables periodic callbacks/managers.
 - save_app_state() and set_app_state() return a success boolean. Failed key saves
   roll back the in-memory change; malformed/non-object state loads as an empty
   dictionary with a logged error, and saving is blocked until a successful reload.
-  Invalid scenes do not change saved scene state.
+  Invalid scenes do not change saved scene state. A valid scene selection still
+  changes Mode when its state cannot be persisted; the failure is logged.
 - WiFi recovery waits dispatch normal App messages as well as exit. Gateway
   detection is scoped to wifi_interface. A missing gateway counts as failed
   connectivity and is re-detected during recovery, not silently ignored.
@@ -94,7 +104,7 @@ Version 0.44 includes the following corrections:
 Remaining limitation: check_running_process() is a best-effort process-name
 heuristic, not an atomic lock or reliable packaged-executable singleton guard.
 
-App constructor: `App(workers=None, project_path=None)`. The `project_path` parameter sets the root directory for all data files: config.toml, images/, sounds/, music/, script.txt, log.txt, logs/, app state, and mode resource folders. When omitted (or None), project_path defaults to the directory containing the main script (base_path), preserving backward compatibility with existing apps. When set, base_path still reflects the script location, but all data lookups use project_path.
+App constructor: `App(workers=None, project_path=None)`. The `project_path` parameter sets the root directory for all data files: config.toml, images/, sounds/, music/, script.txt, log.txt, logs/, app state, and mode resource folders. When omitted (or None), project_path defaults to the directory containing the main script (base_path). When set, base_path still reflects the script location, but all data lookups use project_path.
 
 **When to use `project_path`:** Use it when source code and data files are in separate directories. The Pygame App Framework convention places source in `src/` and data at the project root:
 
@@ -140,7 +150,9 @@ Mode and releases Workers even when file logging is unavailable.
 
 ```
 config: dict                              # application configuration
-update_config(key, value)			      # message worker to update config
+update_config(key, value) -> bool	      # message config-manager worker; False if none
+change_font() -> str|None                 # request next font; returns its name
+run()                                     # starts the App run loop
 headless: bool=False                      # headless mode (defaults to False)
 screen_width, screen_height: int          # screen width and height
 screen_center: int                        # horizontal center (x/2)
@@ -196,7 +208,7 @@ images: dict                              # indexed by filename without extensio
 animations: dict                          # contains .frames and .sequences
 load_images(path) -> (dict, dict)         # loads images and animations as libraries
 load_image(filename, alpha_blend=False)    # loads an individual image at path
-get_image(image_name)   # finds image by checking mode library, app library, and path
+get_image(image)        # finds image by checking mode library, app library, and path
 get_animation(animation) # finds animation by checking mode library, then app library
 create_surface(x, y, color='black', alpha_blend=False, flags=None)
 copy_surface(surface)
@@ -216,7 +228,7 @@ start_display_fade(steps=None, color='black', end_mode=None, end_parameters=None
 Volume is specified as a range from 0 to 100.
 Loops are specified as 0 (play once) or -1 (repeat forever).
 Both playback methods apply the requested volume on every call, including 100
-after a quieter playback (corrected in version 0.44).
+after a quieter playback.
 
 ```
 sounds: dict        				       # indexed by filename without extension
@@ -224,7 +236,7 @@ sound_volume: int                          # current sound volume (0-100, defaul
 music_volume: int                          # current music volume (0-100, default 100)
 load_sounds(path) -> dict                  # loads sounds as library
 load_sound(sound)                          # loads an individual sound 
-get_sound(sound_name)	# finds sound by checking mode library, app library, and path
+get_sound(sound)		# finds sound by checking mode library, app library, and path
 set_volume(volume, sound_volume=None)      # default=sound and music volume
 set_sound_retainer(enable=True) 	       # loops a quiet noise to keep sound active
 play_sound(sound, loops=None, volume=None)
@@ -239,7 +251,7 @@ Music fades advance once per drawing cycle, or once per processing cycle in
 headless applications.
 
 ```
-get_music(music_name)	# finds music by checking mode library, app library, and path
+get_music(music_name)	# finds a file in <project>/<mode>/music/, <project>/music/, then the path
 play_music(filename, loops=0, volume=None)
 stop_music()
 is_music_playing()
@@ -304,7 +316,7 @@ name=Game_Board         mode=Game_Board        submode=playing
 name=Game_Over          mode=Game_Board        submode=complete
 ```
 
-The App can load a script (ignoring whitespace and comments), sequentially number the scenes starting from zero, and initiate execution at the first scene. Call `select_scene()` or `advance_scene()` to navigate through the script.
+The App can load a script (ignoring whitespace and comments), sequentially number the scenes starting from zero, and begin execution at the persisted scene (scene 0 for a new state). Call `select_scene()` or `advance_scene()` to navigate through the script.
 
 ```
 run_script()			            # call this in app.init() to run the script
@@ -483,18 +495,16 @@ selected by the callback. Submode discovery does not evaluate properties.
 
 ### Built-in Modes
 
-Jubilee provides two built-in Mode subclasses that can be added to an App via `add_mode()`:
+Jubilee provides two built-in Mode subclasses that can be added to an App via `add_mode()`. set_mode() records the calling Mode as previous_mode, so Back/Cancel return to it automatically:
 
 ```
 LogMode
     """ Displays log entries with CPU load/temperature graphs and page navigation.
-        Mode name: 'Log'. Pass {'previous_mode': 'ModeName'} as mode_parameters
-        to enable the Back button. """
+        Mode name: 'Log'. The Back button returns to the calling Mode. """
 
 ShutDownMode
     """ Displays a shutdown confirmation screen with a hold-to-confirm button.
-        Mode name: 'Shut Down'. Pass {'previous_mode': 'ModeName'} as mode_parameters
-        to enable the Cancel button. """
+        Mode name: 'Shut Down'. The Cancel button returns to the calling Mode. """
 ```
 
 ## Animation Libraries and Sprites
@@ -539,6 +549,7 @@ static_image: str|Surface|None       # static image; overrides animation
 set_static_image(image)              # sets static_image via image lookup
 animation: str|Animation|None        # animation library for sprite
 set_sequence(sequence_name: str, auto_animate_rate: int=None, reset_sequence_frame: bool=True) -> bool
+                                     # omitting auto_animate_rate (None) disables auto-animation
 sequence_name: str|None              # name of current sequence
 sequence_frame: int|None             # number of current frame
 animate(sequence_frame: int=None) -> bool  # increment or jump to sequence frame
@@ -608,19 +619,22 @@ send_message(message: str|dict)
 	# messages are sent as dicts - a provided string will be sent as {'action': message}
 process_message(message, sender=None)    # stub method for handling app messages
 send_updated_config()		    			 # sends config to app
-write_config()								 # writes config and sends to app
-update_config(key, value)					 # writes updated config; sends to app
+write_config()								 # writes whole config and sends to app; refused after a failed load
+update_config(key, value)					 # updates one key in config.toml; sends to app
+exit(code=0)								 # ends the worker process
 ```
 
 ## config.toml
 
 This file contains high-level Jubilee application configuration in TOML format. App loads this file into App.config at startup; if the file does not exist, default values provided in Worker are used. A first Worker process periodically checks this file for updates and automatically reloads it.
 
-TOML has no null type. To indicate None/unset, omit the key entirely. The defaults dict in Worker provides None for omitted keys like `font` and `wifi_ping_target`.
+TOML has no null type. To indicate None/unset, omit the key entirely. Omitted keys without a Worker default, such as `font`, read as None; the Worker default for `wifi_ping_target` is None. A `font` name must be one of `pygame.font.get_fonts()` (lowercase); other names fall back to the standard font.
+
+Running the main script with the argument `debug` sets the log file level to DEBUG; `console_debug` sets the console level to DEBUG. Workers created afterwards use the same levels.
 
 ```
 screen_resolution = [320, 240]                # screen resolution for drawing
-screen_rotation = 0                           # 90/180/270-degree rotations
+screen_rotation = 0                           # 90/180/270-degree rotations (ignored on macOS)
 headless = false                              # display vs. no-display configurations
 # pointer_input = true                        # receive pointer (mouse or touch) events (Linux only)
 keyboard_input = true                         # receive keyboard events
@@ -686,6 +700,8 @@ Operations default to get_filename() filename, which is usually `config.toml`. C
 project_path: str=None                                 # class var; set by App
 load(filename: str=None, defaults: dict=None, strict: bool=False) -> dict
 save(config: dict=None, filename: str=None)            # strips top-level None values
+update(values: dict, filename: str=None)               # updates keys in place; keeps other settings,
+                                                       # comments and permissions; None removes a key
 get_filename() -> str
 ```
 
@@ -695,7 +711,7 @@ Relative log filenames are normalized to absolute paths for handler caching and
 file-level settings, so changing working directories cannot reuse another
 directory's handler. Empty messages remain valid parseable records.
 Operations default to get_filename() filename, which is usually `log.txt`. The first worker usually rotates the log during process_periodic at a frequency defined in `config.toml`. When App sets a project_path, Log.get_filename() resolves relative to that path.
-In version 0.44, error() also includes the current exception
+error() also includes the current exception
 traceback when called from an exception handler. Ordinary error messages outside
 an exception handler do not acquire a synthetic traceback. This improves
 diagnostics without changing the caller's recovery or continuation behavior.
@@ -747,5 +763,45 @@ sign_request(url, password, timestamp: int=None) -> (bool, str)
 get_local_ip_address() -> (bool, str)       # success, result or error message
 test_internet() -> (bool, float|str)        # success, latency or error message
 get_hostname() -> str                       # get local hostname
-get_color(color: str|int|tuple, color_scale: float=None) -> tuple|None
+get_color(color: str|tuple, color_scale: float=None) -> tuple|None
         # color=string (case-insensitive), Color.enum, or tuple; can scale by 0.0-1.0
+
+## Event Receivers and Internal Methods
+
+Jubilee calls these methods itself. Applications override the hooks without the
+`on_` prefix (`process()`, `draw()`, `enter()`, `exit()`, `click()` and so on)
+and normally do not call or override these, except where noted.
+
+```
+App
+on_process(), handle_events(), receive_messages()   # run-loop steps
+flip()                                   # flips display buffers; called by draw(); applies software rotation
+apply_display_fade(), apply_music_fade() # advance active fades once per cycle
+init_script()                            # loads script.txt and the persisted scene
+set_standard_font()                      # rebuilds the standard font from config
+register_exit_handlers()                 # ensures pygame.quit() at exit
+
+Mode
+load_resources()                         # loads <project>/<mode name>/images and sounds; called by add_mode()
+on_enter(mode_parameters=None), on_exit(), on_process(), on_hold(), on_release()
+
+Control
+collide(x, y) -> bool                    # whether (x, y) is inside the control
+on_hold(), on_release()                  # call the provided hold/release handlers
+exit_handler()                           # handler that calls app.exit(); usable as a Button click handler
+
+PointerInterface (TouchInterface on Linux, MouseInterface on macOS)
+handle_event(event) -> bool              # mouse events; True for a left-button press
+detect_events() -> bool                  # polls the touch device; True while a new touch press is reported
+
+Worker
+on_process(), on_process_periodic(), receive_messages()
+manage_config(), manage_log(), manage_wifi()   # first-Worker managers run from on_process_periodic()
+
+LogMode: back_click(), check_log(), record_cpu_temperatures(), log_page_up(), log_page_down()
+ShutDownMode: cancel_shutdown()
+
+Log
+get_logger(filename=None) -> logging.Logger
+get_caller_info(stack_depth=2) -> (class_name|None, function_name|None)
+```

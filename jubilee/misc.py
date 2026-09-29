@@ -52,13 +52,51 @@ class Config:
 
 		filename = filename or cls.get_filename()
 		filtered = {k: v for k, v in (config or {}).items() if v is not None}
+		cls._write(filename, tomlkit.dumps(filtered))
+
+	@classmethod
+	def update(cls, values: dict, filename: str=None):
+		""" Updates top-level keys in the config file, preserving its other
+				settings, comments and file permissions. A None value removes the key.
+				Raises if an existing file cannot be read or parsed, so a damaged
+				file is never replaced.
+
+				Args:
+					values:				Dict of keys and values to update.
+					filename:			Filename, or default filename (config.toml).
+		"""
+
+		filename = filename or cls.get_filename()
+		if os.path.isfile(filename):
+			with open(filename, 'rt', encoding='UTF-8') as f:
+				document = tomlkit.loads(f.read())
+		else:
+			document = tomlkit.document()
+		for key, value in values.items():
+			if value is None:
+				document.pop(key, None)
+			else:
+				document[key] = value
+		cls._write(filename, tomlkit.dumps(document))
+
+	@classmethod
+	def _write(cls, filename: str, text: str):
+		""" Writes text atomically, keeping an existing file's permissions. """
+
 		dir_name = os.path.dirname(os.path.abspath(filename))
+		try:
+			mode = os.stat(filename).st_mode & 0o777
+		except FileNotFoundError:
+			umask = os.umask(0)
+			os.umask(umask)
+			mode = 0o666 & ~umask
 		fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
 		try:
 			with os.fdopen(fd, 'wt', encoding='UTF-8') as f:
-				f.write(tomlkit.dumps(filtered))
+				f.write(text)
 				f.flush()
 				os.fsync(f.fileno())
+			os.chmod(tmp_path, mode)
 			os.replace(tmp_path, filename)
 		except Exception:
 			try:

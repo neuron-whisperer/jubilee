@@ -1,9 +1,18 @@
-# README.md
+# Jubilee
 
 ## Introduction
 
 Jubilee supports pygame applications on macOS and Raspberry Pi, with optional
 background Workers and graphical Modes. Python 3.10 or later is required.
+
+## Installation
+
+```
+pip install jubilee
+```
+
+The example projects described below are in the `examples/` folder of the
+source repository and source distribution; they are not installed by pip.
 
 ## Source Validation
 
@@ -11,8 +20,7 @@ From the Jubilee source directory, use an isolated environment with
 `requirements.txt` installed and run `python -m unittest discover -s tests -v`.
 The packaging test additionally needs setuptools>=77.0.3 and wheel. Tests use
 dummy SDL drivers, temporary data directories, and real spawned Workers; they
-do not validate physical touchscreens, audio devices, WiFi recovery commands,
-or signed macOS bundles. Packaging tests build only in temporary directories.
+do not validate physical touchscreens, audio devices or WiFi recovery commands. Packaging tests build only in temporary directories.
 
 ## Background
 
@@ -103,7 +111,7 @@ Jubilee applications can include a rich set of modes with UI elements and naviga
 
 ## Examples
 
-The Examples folder contains a variety of example projects that run right out of the box:
+The `examples/` folder contains a variety of example projects that run right out of the box:
 
 * **Hello** - A Hello, World! project with an App class and a Worker (background) class.
 * **Headless** - A project with no display. (Can still play sound and music.)
@@ -115,7 +123,7 @@ The Examples folder contains a variety of example projects that run right out of
 * **Modes** - A project that demonstrates two modes, packaged into two Mode classes.
 * **Submodes** - A project that demonstrates submodes.
 * **Script** - A project that demonstrates mode scripting.
-* **Screen_Rotation** - A project that demonstrates 180-degree screen rotation. (Can also change screen_rotation in config.toml to 90 or 270.)
+* **Screen_Rotation** - A project that demonstrates 180-degree screen rotation on Raspberry Pi/Linux. (Can also change screen_rotation in config.toml to 90 or 270.) Rotation is ignored on macOS.
 
 These projects can be used for quick reference, as sandboxes to experiment with the features, or as templates for new projects with similar features.
 
@@ -149,4 +157,4 @@ Additional features:
 
 * **Input:** On Linux, Jubilee will handle touch input if the config parameter pointer_input is True. On macOS, Jubilee automatically handles mouse events. Jubilee also stores and provides keyboard input on a key basis (`new_keys` for newly pressed keys and `held_keys` for all keys that are currently down) and as a keyboard buffer (`keyboard_buffer` as a string and `keyboard_buffer_chars` as an array of keys).
 
-* **Screen Rotation:** SDL2 does not support 90/180/270-degree hardware screen rotation. Jubilee enables screen rotation by inserting an additional surface between the screen and the drawing functions to receive all of the graphical content, and then applying a pygame rotation to the surface before blitting it to the screen. This is extremely inefficient and likely to be very slow, but it is the only real option, as the architecture of SDL2 apparently cannot be adapted to include hardware support for screen rotation. This issue is addressed in SDL3, so this functionality will likely be greatly improved once SDL3 support is added to pygame.
+* **Screen Rotation:** SDL2 does not support 90/180/270-degree hardware screen rotation. On Raspberry Pi/Linux, Jubilee enables screen rotation (it is ignored on macOS) by inserting an additional surface between the screen and the drawing functions to receive all of the graphical content, and then applying a pygame rotation to the surface before blitting it to the screen. This is extremely inefficient and likely to be very slow, but it is the only real option, as the architecture of SDL2 apparently cannot be adapted to include hardware support for screen rotation. This issue is addressed in SDL3, so this functionality will likely be greatly improved once SDL3 support is added to pygame.

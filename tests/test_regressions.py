@@ -1,5 +1,6 @@
 """Source regressions; run with python -m unittest discover -s tests -v."""
 
+import datetime
 import json
 import importlib
 import os
@@ -257,10 +258,103 @@ class Regressions(unittest.TestCase):
     def test_failed_config_save_rolls_back_memory(self):
         worker = self.worker()
         worker.config['custom'] = 1
-        with patch.object(Config, 'save', side_effect=OSError('disk full')):
+        with patch.object(Config, 'update', side_effect=OSError('disk full')):
             with self.assertRaises(OSError):
                 worker.update_config('custom', 2)
         self.assertEqual(worker.config['custom'], 1)
+
+    def test_config_update_preserves_file_settings_comments_and_mode(self):
+        worker = self.worker()
+        path = Path(worker.config_filename)
+        path.write_text('# chosen display\nscreen_resolution = [800, 480]\nfont_size = 20\n')
+        path.chmod(0o644)
+        worker.update_config('font', 'dejavusans')
+        text = path.read_text()
+        self.assertIn('# chosen display', text)
+        self.assertIn('screen_resolution = [800, 480]', text)
+        self.assertIn('font = "dejavusans"', text)
+        self.assertNotIn('wifi_ping_interval', text)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o644)
+        self.assertEqual(json.loads(worker.worker_queue.get_nowait())['config']['font'], 'dejavusans')
+
+    def test_malformed_config_is_never_replaced_by_defaults(self):
+        path = self.root / 'config.toml'
+        path.write_text('screen_resolution = [800, 480]\nbroken = [\n')
+        with patch.object(Config, 'project_path', str(self.root)), patch('multiprocessing.Process'):
+            worker = Worker(queue.Queue(), queue.Queue(), config_manager=True)
+        self.assertTrue(worker.config_load_failed)
+        self.assertEqual(worker.config['screen_resolution'], Worker.config_defaults['screen_resolution'])
+        with self.assertRaises(Exception):
+            worker.update_config('font', 'dejavusans')
+        with self.assertRaisesRegex(ValueError, 'failed load'):
+            worker.write_config()
+        self.assertEqual(path.read_text(), 'screen_resolution = [800, 480]\nbroken = [\n')
+
+    def test_log_archive_is_named_for_its_own_period(self):
+        worker = self.worker()
+        worker.log_manager = True
+        worker.log_date = datetime.datetime(2026, 9, 28, 23, 59)
+        with patch.object(Log, 'get_filename', return_value=str(self.root / 'log.txt')), \
+                patch.object(Log, 'backup', return_value=True) as backup:
+            (self.root / 'log.txt').write_text('entry\n')
+            worker.manage_log()
+        backup.assert_called_once_with(backup_filename='log_20260928.txt')
+
+    def test_scene_navigation_continues_when_state_cannot_persist(self):
+        app = self.app()
+        app.script = [{'mode': 'A'}, {'mode': 'B'}]
+        app.modes = {'A': Mock(), 'B': Mock()}
+        app.persist_app_state = True
+        app._app_state_load_failed = True
+        app.set_mode = Mock()
+        app.select_scene(1)
+        app.set_mode.assert_called_once_with('B', mode_parameters={'mode': 'B'})
+        self.assertEqual(app.app_state['scene'], 1)
+
+    def test_rejected_duplicate_launch_does_not_log_exit(self):
+        with patch.object(App, 'check_running_process', return_value=True), \
+                patch.object(Log, 'backup') as backup, patch.object(Log, 'info') as info:
+            with self.assertRaises(SystemExit):
+                App(project_path=str(self.root))
+        backup.assert_not_called()
+        self.assertFalse(any(c.args and c.args[0] == 'Exiting' for c in info.call_args_list))
+
+    def test_worker_process_receives_app_log_levels(self):
+        import signal
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            self.addCleanup(signal.signal, signum, signal.getsignal(signum))
+        self.addCleanup(Log.set_console_level, 100)
+        Log.set_console_level(Log.DEBUG)
+        with patch.object(Config, 'project_path', str(self.root)), patch('multiprocessing.Process'):
+            worker = Worker(queue.Queue(), queue.Queue())
+        Log.set_console_level(Log.WARNING)       # as in a freshly spawned process
+        worker.start_worker = Mock(side_effect=SystemExit)
+        with self.assertRaises(SystemExit):
+            worker.run()
+        self.assertEqual(Log.console_level, Log.DEBUG)
+
+    def test_non_text_key_does_not_desync_keyboard_buffer(self):
+        app = self.app()
+        app.config['keyboard_input'] = True
+        app.keyboard_buffering = True
+        app.keyboard_buffer = ''
+        app.keyboard_buffer_chars = []
+        app.held_keys = []
+        app.receive_messages = Mock()
+        codes = {name: index for index, name in enumerate(Misc.key_names)}
+        pressed = set()
+
+        class Pressed:
+            def __getitem__(self, code):
+                return code in pressed
+
+        with patch('pygame.event.get', return_value=[]), patch('pygame.key.get_pressed', return_value=Pressed()), \
+                patch('pygame.key.key_code', side_effect=lambda name: codes[name]):
+            for key in ('a', 'b', 'tab', 'backspace'):
+                pressed = {codes[key]}
+                app.handle_events()
+        self.assertEqual(app.keyboard_buffer, 'a')
+        self.assertEqual(app.keyboard_buffer_chars, ['a'])
 
     def test_wifi_wait_dispatches_custom_messages(self):
         worker = self.worker()

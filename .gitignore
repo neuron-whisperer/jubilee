@@ -1,5 +1,8 @@
 **/.DS_Store
 **/log.txt
+**/logs/
+**/app_state.json
+*.tmp
 dist/
 build/
 *.egg-info/

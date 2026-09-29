@@ -190,8 +190,9 @@ class LogMode(Mode):
 	def change_font(self):
 		""" Changes font. """
 
-		self.app.change_font()
-		self.app.set_popover(f'Changed font to {self.app.standard_font_name}')
+		font = self.app.change_font()
+		if font is not None:
+			self.app.set_popover(f'Changed font to {font}')
 
 	def log_page_up(self):
 		""" Scrolls log up one page. """
